@@ -180,6 +180,11 @@ final class GatewayConnectionController {
         self.attemptAutoReconnectIfNeeded()
     }
 
+    func embeddedNetworkRouteDidChange() {
+        self.operatorFleet.stopAll()
+        self.scheduleOperatorFleetReconcile()
+    }
+
     func setScenePhase(_ phase: ScenePhase) {
         self.currentScenePhase = phase
         if phase == .active {

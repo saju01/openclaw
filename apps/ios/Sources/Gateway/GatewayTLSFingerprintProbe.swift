@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import OpenClawKit
 import os
 import Security
 
@@ -61,6 +62,7 @@ private final class GatewayTLSFingerprintProbe: NSObject, URLSessionDelegate, UR
 
     func start() {
         let config = URLSessionConfiguration.ephemeral
+        GatewayNetworkRouter.shared.apply(to: config, forHost: self.url.host)
         config.timeoutIntervalForRequest = self.timeoutSeconds
         config.timeoutIntervalForResource = self.timeoutSeconds
         let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)

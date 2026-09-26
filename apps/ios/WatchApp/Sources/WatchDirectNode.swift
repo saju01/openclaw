@@ -148,6 +148,13 @@ final class WatchDirectNode {
         }
         let newestInstalledSetupMs = configuration?.setupSentAtMs ?? 0
         guard sentAtMs > max(Self.lastAcceptedSetupSentAtMs(), newestInstalledSetupMs) else { return }
+        // Defense in depth: the iPhone never sends embedded-tailnet setups, and the watch has
+        // no route to the iPhone's in-app tailnet proxy.
+        if GatewayConnectDeepLink.fromSetupCode(setupCode)?.embeddedTailnet != nil {
+            self.statusText = String(
+                localized: "Direct mode is unavailable for tailnet-only Gateways. Using iPhone relay.")
+            return
+        }
         guard let link = GatewayConnectDeepLink.fromSetupCode(setupCode),
               let configuration = WatchGatewayConfiguration(setupLink: link, sentAtMs: sentAtMs)
         else {

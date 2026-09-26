@@ -15,6 +15,9 @@ OPENCLAW_APP_GROUP_ID = group.ai.openclawfoundation.app.shared
 OPENCLAW_WATCH_APP_BUNDLE_ID = ai.openclawfoundation.app.watchkitapp
 OPENCLAW_ACTIVITY_WIDGET_BUNDLE_ID = ai.openclawfoundation.app.activitywidget
 OPENCLAW_APNS_ENTITLEMENT_ENVIRONMENT = development
+// Home-screen name. Private forks override this in LocalSigning.xcconfig,
+// for example OPENCLAW_APP_DISPLAY_NAME = OpenClaw Tailnet.
+OPENCLAW_APP_DISPLAY_NAME = OpenClaw
 
 OPENCLAW_APP_PROFILE = ai.openclawfoundation.app Development
 OPENCLAW_SHARE_PROFILE = ai.openclawfoundation.app.share Development

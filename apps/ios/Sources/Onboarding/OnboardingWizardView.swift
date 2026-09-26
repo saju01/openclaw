@@ -17,6 +17,7 @@ private enum OnboardingFocusedField: Hashable {
 struct OnboardingWizardView: View {
     @Environment(NodeAppModel.self) private var appModel: NodeAppModel
     @Environment(GatewayConnectionController.self) private var gatewayController: GatewayConnectionController
+    @Environment(EmbeddedTailnetController.self) private var embeddedTailnet: EmbeddedTailnetController
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("node.instanceId") private var instanceId: String = UUID().uuidString
     @AppStorage("gateway.discovery.domain") private var discoveryDomain: String = ""
@@ -878,6 +879,12 @@ extension OnboardingWizardView {
 
         guard let attemptID = self.beginSetupAttempt() else { return }
         defer { self.finishSetupAttempt(attemptID) }
+        if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
+            guard self.setupAttemptID == attemptID else { return }
+            self.setupCodeStatus = failure
+            return
+        }
+        guard self.setupAttemptID == attemptID else { return }
         let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
         guard self.setupAttemptID == attemptID else { return }
 
@@ -923,6 +930,12 @@ extension OnboardingWizardView {
             self.finishSetupAttempt(attemptID)
             self.pendingTargetSuppression.resumeAutoConnect(.qrScanner, controller: self.gatewayController)
         }
+        if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
+            guard self.setupAttemptID == attemptID else { return }
+            self.setupCodeStatus = failure
+            return
+        }
+        guard self.setupAttemptID == attemptID else { return }
         let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
         guard self.setupAttemptID == attemptID else { return }
         self.qrCodeCompletion.stage(link)
@@ -968,6 +981,12 @@ extension OnboardingWizardView {
         self.pendingTargetSuppression.replace(owner: .setupLink, lease: lease)
         defer { self.pendingTargetSuppression.resumeAutoConnect(.setupLink, controller: self.gatewayController) }
         await self.appModel.resetGatewaySessionsForTargetSwitch()
+        guard self.setupLinkStaging.link == link else { return }
+        if let failure = await self.embeddedTailnet.prepareForSetupLink(link) {
+            self.setupCodeStatus = failure
+            self.setConnectionFailure(failure)
+            return
+        }
         guard self.setupLinkStaging.link == link else { return }
         _ = self.setupLinkStaging.take()
         await self.applyGatewayLink(link, disconnectExistingGatewayForBootstrap: false)

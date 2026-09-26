@@ -138,6 +138,18 @@ final class ShareViewController: UIViewController {
                         comment: "Share extension missing gateway error"),
                 ])
         }
+        // The in-app tailnet proxy lives in the host app process. Connecting from here would
+        // bypass it, so fail clearly instead of trying the system network.
+        if config.requiresInAppRoute == true {
+            throw NSError(
+                domain: "OpenClawShare",
+                code: 12,
+                userInfo: [
+                    NSLocalizedDescriptionKey: NSLocalizedString(
+                        "This gateway is reached through OpenClaw's in-app tailnet. Open OpenClaw to share from there.",
+                        comment: "Share extension embedded tailnet gateway error"),
+                ])
+        }
         guard let url = URL(string: config.gatewayURLString) else {
             throw NSError(
                 domain: "OpenClawShare",

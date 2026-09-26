@@ -163,6 +163,7 @@ protocol WatchMessagingServicing: AnyObject, Sendable {
     func setAppSnapshotRequestHandler(_ handler: (@Sendable (WatchAppSnapshotRequestEvent) -> Void)?)
     func setAppCommandHandler(_ handler: (@Sendable (WatchAppCommandEvent) -> Void)?)
     func sendDirectNodeSetup(setupCode: String) async throws -> WatchNotificationSendResult
+    func sendDirectNodeReset() async throws -> WatchNotificationSendResult
     func sendNotification(
         id: String,
         params: OpenClawWatchNotifyParams,
@@ -180,6 +181,12 @@ protocol WatchMessagingServicing: AnyObject, Sendable {
         _ message: OpenClawWatchAppSnapshotMessage) async throws -> WatchNotificationSendResult
     func sendChatDeliveryReceipt(
         _ receipt: OpenClawWatchChatDeliveryReceipt) async throws -> WatchNotificationSendResult
+}
+
+extension WatchMessagingServicing {
+    func sendDirectNodeReset() async throws -> WatchNotificationSendResult {
+        WatchNotificationSendResult(deliveredImmediately: false, queuedForDelivery: false, transport: "unsupported")
+    }
 }
 
 extension CameraController: CameraServicing {}

@@ -29,6 +29,7 @@ struct SwiftUIRenderSmokeTests {
                 .environment(appModel)
                 .environment(appModel.voiceWake)
                 .environment(gatewayController)
+                .environment(EmbeddedTailnetController.preview())
                 .preferredColorScheme(scheme)
 
             windows.append(Self.host(root))
@@ -48,6 +49,7 @@ struct SwiftUIRenderSmokeTests {
                 .environment(appModel)
                 .environment(appModel.voiceWake)
                 .environment(gatewayController)
+                .environment(EmbeddedTailnetController.preview())
                 .environment(\.dynamicTypeSize, typeSize)
                 .preferredColorScheme(scheme)
 
@@ -71,6 +73,7 @@ struct SwiftUIRenderSmokeTests {
             .environment(appModel)
             .environment(appModel.voiceWake)
             .environment(gatewayController)
+            .environment(EmbeddedTailnetController.preview())
             .preferredColorScheme(scheme)
 
             windows.append(Self.host(root, size: CGSize(width: 393, height: 852)))
@@ -277,6 +280,7 @@ struct SwiftUIRenderSmokeTests {
         let root = Color.clear
             .gatewayTrustPromptAlert()
             .environment(gatewayController)
+            .environment(EmbeddedTailnetController.preview())
 
         let window = Self.host(root)
         await Self.triggerGatewayTrustPrompt(controller: gatewayController)
@@ -324,6 +328,7 @@ struct SwiftUIRenderSmokeTests {
             .deepLinkAgentPromptAlert()
             .environment(appModel)
             .environment(gatewayController)
+            .environment(EmbeddedTailnetController.preview())
 
         let window = Self.host(root)
         await Self.triggerGatewayTrustPrompt(controller: gatewayController)
@@ -341,6 +346,7 @@ struct SwiftUIRenderSmokeTests {
             .deepLinkAgentPromptAlert()
             .environment(appModel)
             .environment(gatewayController)
+            .environment(EmbeddedTailnetController.preview())
 
         let window = Self.host(root)
         let url = try #require(URL(string: "openclaw://agent?message=hello%20from%20deep%20link"))

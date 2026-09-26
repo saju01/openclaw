@@ -8,6 +8,9 @@ public struct ShareGatewayRelayConfig: Codable, Sendable, Equatable {
     public let sessionKey: String
     public let deliveryChannel: String?
     public let deliveryTo: String?
+    /// True when the host app reaches this gateway through an in-process route (the embedded
+    /// tailnet proxy) that the share extension process cannot use. Nil in older saved configs.
+    public let requiresInAppRoute: Bool?
 
     public init(
         gatewayURLString: String,
@@ -16,7 +19,8 @@ public struct ShareGatewayRelayConfig: Codable, Sendable, Equatable {
         password: String?,
         sessionKey: String,
         deliveryChannel: String? = nil,
-        deliveryTo: String? = nil)
+        deliveryTo: String? = nil,
+        requiresInAppRoute: Bool? = nil)
     {
         self.gatewayURLString = gatewayURLString
         self.gatewayStableID = gatewayStableID
@@ -25,6 +29,7 @@ public struct ShareGatewayRelayConfig: Codable, Sendable, Equatable {
         self.sessionKey = sessionKey
         self.deliveryChannel = deliveryChannel
         self.deliveryTo = deliveryTo
+        self.requiresInAppRoute = requiresInAppRoute
     }
 }
 
@@ -74,7 +79,8 @@ public enum ShareGatewayRelaySettings {
             password: credentials?.password,
             sessionKey: config.sessionKey,
             deliveryChannel: config.deliveryChannel,
-            deliveryTo: config.deliveryTo)
+            deliveryTo: config.deliveryTo,
+            requiresInAppRoute: config.requiresInAppRoute)
     }
 
     /// An endpoint is not a gateway identity. If the extension launches before the
@@ -132,7 +138,8 @@ public enum ShareGatewayRelaySettings {
             password: nil,
             sessionKey: config.sessionKey,
             deliveryChannel: config.deliveryChannel,
-            deliveryTo: config.deliveryTo)
+            deliveryTo: config.deliveryTo,
+            requiresInAppRoute: config.requiresInAppRoute)
         guard let data = try? JSONEncoder().encode(metadata) else { return }
         self.defaults.set(data, forKey: self.relayConfigKey)
     }

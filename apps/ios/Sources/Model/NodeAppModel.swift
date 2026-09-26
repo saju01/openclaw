@@ -1775,7 +1775,8 @@ final class NodeAppModel {
                     password: relay.password,
                     sessionKey: mainSessionKey,
                     deliveryChannel: self.shareDeliveryChannel,
-                    deliveryTo: self.shareDeliveryTo))
+                    deliveryTo: self.shareDeliveryTo,
+                    requiresInAppRoute: relay.requiresInAppRoute))
         }
         if selectedAgentChanged {
             // Delivery metadata belongs to the selected agent. Rehydrate it
@@ -3241,9 +3242,23 @@ extension NodeAppModel {
             timeoutSeconds: 20,
             ifCurrentRoute: route)
         let setup = try JSONDecoder().decode(SetupCodeResponse.self, from: response)
-        guard let setupLink = GatewayConnectDeepLink.fromSetupCode(setup.setupCode),
-              setupLink.connectionEndpoints.contains(where: \.tls)
+        guard let setupLink = GatewayConnectDeepLink.fromSetupCode(setup.setupCode) else {
+            throw NSError(domain: "WatchDirectSetup", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "Direct Apple Watch mode requires a trusted HTTPS Gateway endpoint.",
+            ])
+        }
+        // The embedded tailnet proxy lives on this iPhone's loopback, which the watch cannot
+        // reach. Direct mode would either fail or leak around the tailnet, so refuse it; the
+        // phone relay keeps working because it rides the iPhone's routed session.
+        guard setupLink.embeddedTailnet == nil,
+              !GatewayNetworkRouter.shared.isRouted(host: setupLink.host)
         else {
+            throw NSError(domain: "WatchDirectSetup", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: String(
+                    localized: "Direct Watch mode is unavailable for in-app tailnet Gateways. Using iPhone relay."),
+            ])
+        }
+        guard setupLink.connectionEndpoints.contains(where: \.tls) else {
             throw NSError(domain: "WatchDirectSetup", code: 4, userInfo: [
                 NSLocalizedDescriptionKey: "Direct Apple Watch mode requires a trusted HTTPS Gateway endpoint.",
             ])
@@ -3251,6 +3266,10 @@ extension NodeAppModel {
         try Task.checkCancellation()
         guard await self.operatorGateway.currentRoute() == route else { throw CancellationError() }
         return try await self.watchMessagingService.sendDirectNodeSetup(setupCode: setup.setupCode)
+    }
+
+    func revokeDirectWatchSetupForEmbeddedTailnet() async {
+        _ = try? await self.watchMessagingService.sendDirectNodeReset()
     }
 
     func refreshWatchMessagingStatus() async {
@@ -4463,7 +4482,8 @@ extension NodeAppModel {
             password: auth.password,
             sessionKey: self.mainSessionKey,
             deliveryChannel: self.shareDeliveryChannel,
-            deliveryTo: self.shareDeliveryTo))
+            deliveryTo: self.shareDeliveryTo,
+            requiresInAppRoute: GatewayNetworkRouter.shared.isRouted(host: url.host)))
         GatewayDiagnostics.log(
             "gateway connected host=\(url.host ?? "?") scheme=\(url.scheme ?? "?")")
 
@@ -5353,7 +5373,8 @@ extension NodeAppModel {
                             password: relay.password,
                             sessionKey: self.mainSessionKey,
                             deliveryChannel: channel,
-                            deliveryTo: to))
+                            deliveryTo: to,
+                            requiresInAppRoute: relay.requiresInAppRoute))
                 }
             }
         } catch {

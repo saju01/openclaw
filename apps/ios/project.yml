@@ -1,6 +1,8 @@
 name: OpenClaw
 options:
-  preGenCommand: node ../../scripts/prepare-apple-mermaid.mjs
+  # TailscaleKit.xcframework must exist before Xcode resolves the embedded framework.
+  # The build script is a no-op when the pinned output is already present.
+  preGenCommand: node ../../scripts/prepare-apple-mermaid.mjs && scripts/tailscalekit-build.sh
   bundleIdPrefix: ai.openclawfoundation
   deploymentTarget:
     iOS: "18.0"
@@ -91,9 +93,22 @@ targets:
         product: SwabbleKit
       - package: WebRTC
       - package: Sodium
+      # Userspace tailnet node (libtailscale tsnet). Built by scripts/tailscalekit-build.sh
+      # from a pinned commit; git-ignored. Xcode embeds only the slice for the active SDK,
+      # so archives carry the device-only arm64 iphoneos binary.
+      - framework: build/TailscaleKit/TailscaleKit.xcframework
+        embed: true
+        codeSign: true
       - sdk: AppIntents.framework
       - sdk: HealthKit.framework
     preBuildScripts:
+      # Building TailscaleKit runs a nested xcodebuild, which must not inherit this build's
+      # SDK/arch environment; xcodegen's preGenCommand builds it. This phase only verifies.
+      - name: TailscaleKit (verify pinned build)
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          "$SRCROOT/scripts/tailscalekit-build.sh" --check
       - name: SwiftFormat (lint)
         basedOnDependencyAnalysis: false
         inputFileLists:
@@ -151,7 +166,7 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw
+        CFBundleDisplayName: "$(OPENCLAW_APP_DISPLAY_NAME)"
         CFBundleIconName: "$(ASSETCATALOG_COMPILER_APPICON_NAME)"
         CFBundleURLTypes:
           - CFBundleURLName: ai.openclawfoundation.app
@@ -442,6 +457,9 @@ targets:
       - target: OpenClaw
       - package: Swabble
         product: SwabbleKit
+      # @testable import OpenClaw needs the TailscaleKit module; the host app embeds it.
+      - framework: build/TailscaleKit/TailscaleKit.xcframework
+        embed: false
       - sdk: AppIntents.framework
     settings:
       base:

@@ -28,6 +28,7 @@ struct RootTabs: View {
     @Environment(NodeAppModel.self) private var appModel
     @Environment(VoiceWakeManager.self) private var voiceWake
     @Environment(GatewayConnectionController.self) private var gatewayController
+    @Environment(EmbeddedTailnetController.self) private var embeddedTailnet
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -718,6 +719,7 @@ struct RootTabs: View {
                     })
                     .environment(self.appModel)
                     .environment(self.gatewayController)
+                    .environment(self.embeddedTailnet)
                     .openClawSheetChrome()
                 case let .notificationSettings(path):
                     DashboardPageScreen(
@@ -746,6 +748,7 @@ struct RootTabs: View {
                     .environment(self.appModel)
                     .environment(self.voiceWake)
                     .environment(self.gatewayController)
+                    .environment(self.embeddedTailnet)
             }
             .gatewayTrustPromptAlert(isEnabled: !self.showOnboarding)
             .deepLinkAgentPromptAlert()
@@ -1168,6 +1171,7 @@ private struct RootTabsPreviewHost: View {
             .environment(self.appModel)
             .environment(self.appModel.voiceWake)
             .environment(self.gatewayController)
+            .environment(EmbeddedTailnetController.preview())
     }
 }
 

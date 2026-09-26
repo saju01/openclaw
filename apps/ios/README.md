@@ -350,6 +350,105 @@ Pass criteria:
 - no location-driven reconnect spam loops
 - app remains stable after repeated background/foreground transitions
 
+## Embedded Tailnet (In-App Tailscale Node)
+
+Some setup codes ask the iPhone to reach its Gateway through a Tailscale node that runs
+inside the app. This works alongside any system VPN because it does not use one.
+
+### Design
+
+- **No NetworkExtension.** There is no packet tunnel, VPN profile, or system route change,
+  and no auth keys. `EmbeddedTailnetController` runs a userspace libtailscale (tsnet) node
+  through TailscaleKit. The node is not ephemeral.
+- **Loopback SOCKS5.** The node exposes a local SOCKS5 proxy with credentials.
+  `GatewayNetworkRouter` (OpenClawKit) is the one routing projection. The controller
+  publishes the Gateway hosts it carries and their route. Each Gateway transport reads the
+  route when it creates a connection: WebSocket and HTTP `URLSession`s (`GatewayChannel`,
+  `GatewayTLSPinningSession`), the TLS fingerprint probe, `TCPProbe`, Cloudflare Access
+  requests, gateway-hosted Talk offer requests, and the WebKit data stores for the Control UI
+  and inline widgets. SOCKS5 resolves names on the proxy side, so MagicDNS names never go to
+  system DNS. Hosts not published by the controller, including third-party APIs, the push
+  relay, and link previews, keep using the system network.
+- **Fail closed.** When `required` is true (the default), a routed host has one of two
+  routes: `.proxy` while the node is running and the loopback listener answers, or
+  `.unavailable` otherwise. `.unavailable` points at a blackhole proxy with failover
+  disabled, so connections fail and never fall back to direct. AVPlayer cannot use a
+  proxy, so routed video uses the bounded authenticated download path.
+- **State.** Node state lives in `Application Support/EmbeddedTailnet/<control-host>/<hostname>`
+  in the app container and is excluded from backup. A restored device joins as a new node.
+  The setup (control URL, hostname, required, routed hosts) is stored in `UserDefaults`.
+
+### Lifecycle
+
+1. Settings or onboarding parses a setup code. If it has a `tailnet` object, setup calls
+   `prepareForSetupLink`. This starts the node and waits before any gateway probe or pairing.
+2. If the node needs login, the controller presents the real IPN-bus `BrowseToURL` in
+   `ASWebAuthenticationSession`. The user signs in. The app never enters credentials.
+3. The controller publishes `.running` only after the backend reports `Running` and the
+   loopback listener accepts a TCP connection. Gateway pairing continues after that.
+4. On scene foreground and on a periodic check, the controller probes the loopback listener.
+   iOS can reclaim it during suspension. If the probe fails, the controller restarts the
+   node. Route changes force gateway sessions to reconnect.
+5. Settings → Gateway → **Tailnet** shows state, tailnet IP, user, and device name. It also has
+   Sign in, Reconnect, Log Out (reset auth, new login URL), and Reset (delete node state and
+   stop routing).
+
+### Apple Watch and Share Extension
+
+- The watch cannot reach the iPhone process loopback. Direct Watch mode is refused for
+  embedded-tailnet Gateways, on the iPhone (`NodeAppModel.sendDirectWatchSetup`) and on the watch
+  (`WatchDirectNode.configure`). The watch keeps using the phone relay, which goes through
+  the iPhone's routed session.
+- The share extension runs in its own process and cannot use the proxy. The app marks the
+  relay config `requiresInAppRoute`. The extension then shows an error and does not try a
+  direct connection.
+
+### Setup payload schema
+
+The setup code is base64url JSON. All legacy fields are unchanged. `tailnet` is optional:
+
+```json
+{
+  "url": "wss://gateway.example.ts.net",
+  "bootstrapToken": "…",
+  "tailnet": {
+    "controlURL": "https://controlplane.tailscale.com",
+    "hostname": "openclaw-iphone",
+    "required": true
+  }
+}
+```
+
+- `controlURL`: HTTPS only, with no credentials, query, or fragment. Default: `https://controlplane.tailscale.com`.
+- `hostname`: one DNS label (`[a-z0-9-]`, 1–63 characters), lowercased. Default: `openclaw-iphone`.
+- `required`: default `true`.
+- A malformed `tailnet` value rejects the whole setup code. It never connects without the tailnet.
+- Every endpoint in an embedded-tailnet setup is routed through the in-app node. Required setups never fall back to a LAN endpoint or the system VPN.
+- Fixtures: `apps/shared/OpenClawKit/Tests/OpenClawKitTests/Fixtures/SetupCodes/embedded-tailnet.json`.
+
+### TailscaleKit build (pinned)
+
+TailscaleKit is built from `tailscale/libtailscale` at the exact commit
+`59d4bb82744915815178e0f0776d60026a397ee7` (Go toolchain `go1.25.5`, tags `ios,ts_omit_logtail`).
+Build output goes to git-ignored `apps/ios/build/`. Binaries and vendored source are not committed.
+
+```bash
+apps/ios/scripts/tailscalekit-build.sh           # builds build/TailscaleKit/TailscaleKit.xcframework
+cd apps/ios && xcodegen generate                  # preGenCommand also runs the build script
+apps/ios/scripts/tailscalekit-verify-archive.sh path/to/OpenClaw.xcarchive
+```
+
+The xcframework has an arm64 `iphoneos` slice and an arm64/x86_64 simulator slice. Xcode
+embeds only the slice for the destination SDK. Debug simulator builds get the simulator
+slice. Archives get the device-only slice. The verify script fails if an archive has
+anything other than arm64 `platform IOS`. The license is in `Resources/Licenses/TailscaleKit.txt`.
+
+### Display name
+
+`OPENCLAW_APP_DISPLAY_NAME` (default `OpenClaw`, set in `Signing.xcconfig`) sets the home-screen name.
+A private fork can set `OPENCLAW_APP_DISPLAY_NAME = OpenClaw Tailnet` in git-ignored
+`LocalSigning.xcconfig`.
+
 ## Known Issues / Limitations / Problems
 
 - Foreground-first: iOS can suspend sockets in background; reconnect recovery is still being tuned.

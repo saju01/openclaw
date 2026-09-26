@@ -1,0 +1,45 @@
+{
+  "_comment": "Setup payload fixtures (decoded JSON, before base64url). `payload` is what the Gateway encodes into a setup code; `expect` is null when the app must reject it. Tokens are synthetic.",
+  "cases": [
+    {
+      "name": "legacy-url",
+      "payload": {"url": "wss://gateway.example.ts.net", "bootstrapToken": "synthetic-bootstrap"},
+      "expect": {"host": "gateway.example.ts.net", "tailnet": null}
+    },
+    {
+      "name": "extended-defaults",
+      "payload": {"url": "wss://gateway.example.ts.net", "bootstrapToken": "synthetic-bootstrap", "tailnet": {}},
+      "expect": {"host": "gateway.example.ts.net", "tailnet": {"controlURL": "https://controlplane.tailscale.com", "hostname": "openclaw-iphone", "required": true}}
+    },
+    {
+      "name": "extended-custom",
+      "payload": {"host": "gw.corp.example", "port": 443, "tls": true, "bootstrapToken": "synthetic-bootstrap", "tailnet": {"controlURL": "https://Headscale.Example.com/", "hostname": "Family-iPhone", "required": false}},
+      "expect": {"host": "gw.corp.example", "tailnet": {"controlURL": "https://headscale.example.com", "hostname": "family-iphone", "required": false}}
+    },
+    {
+      "name": "invalid-http-control",
+      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"controlURL": "http://controlplane.tailscale.com"}},
+      "expect": null
+    },
+    {
+      "name": "invalid-control-credentials",
+      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"controlURL": "https://user:pw@controlplane.tailscale.com"}},
+      "expect": null
+    },
+    {
+      "name": "invalid-hostname",
+      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"hostname": "bad host.name"}},
+      "expect": null
+    },
+    {
+      "name": "invalid-required-type",
+      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"required": "yes"}},
+      "expect": null
+    },
+    {
+      "name": "invalid-tailnet-type",
+      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": true},
+      "expect": null
+    }
+  ]
+}

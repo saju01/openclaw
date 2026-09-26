@@ -79,11 +79,12 @@ struct IOSMediaArtifactLoader: Sendable {
         let headers = url.scheme?.lowercased() == "https"
             ? GatewayCustomHeaders.sanitized(connection.customHeaders)
             : [:]
-        // AVPlayer cannot use the app's pinned TLS delegate or immutable proxy
-        // headers. Those routes take the bounded authenticated download path.
+        // AVPlayer cannot use the app's pinned TLS delegate, immutable proxy
+        // headers, or an in-app gateway route. Those take the bounded download path.
         let canStreamDirectly = kind == .video &&
             url.scheme?.lowercased() == "https" &&
             connection.config.tls == nil &&
+            !GatewayNetworkRouter.shared.isRouted(host: url.host) &&
             headers.isEmpty &&
             declaredMIME.map(kind.acceptsMIMEType) == true
         if canStreamDirectly, playback != .transcode, let declaredMIME {

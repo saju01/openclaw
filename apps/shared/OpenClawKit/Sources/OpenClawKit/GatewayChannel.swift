@@ -104,7 +104,11 @@ public actor GatewayChannelActor {
         self.password = password
         self.authBindingKey = authBindingKey
         self.extraHeadersProvider = extraHeadersProvider
-        self.session = session?.session ?? URLSession(configuration: .default)
+        self.session = session?.session ?? {
+            let configuration = URLSessionConfiguration.default
+            GatewayNetworkRouter.shared.apply(to: configuration, forHost: url.host)
+            return URLSession(configuration: configuration)
+        }()
         self.connectSnapshotAdmissionHandler = connectSnapshotAdmissionHandler
         self.pushHandler = pushHandler
         self.connectOptions = connectOptions

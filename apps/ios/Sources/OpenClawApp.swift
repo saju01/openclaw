@@ -670,6 +670,7 @@ struct OpenClawApp: App {
     @State private var appModel: NodeAppModel
     @State private var gatewayController: GatewayConnectionController
     @State private var voiceLiveActivityCoordinator: VoiceLiveActivityCoordinator
+    @State private var embeddedTailnet: EmbeddedTailnetController
     @UIApplicationDelegateAdaptor(OpenClawAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
@@ -698,15 +699,28 @@ struct OpenClawApp: App {
             }
         }
         #endif
+        // Created before the gateway controller so a required tailnet route is published
+        // (failing closed) before any gateway autoconnect can run.
+        let embeddedTailnet = EmbeddedTailnetController(startNode: !Self.screenshotModeEnabled)
+        embeddedTailnet.onRequiredRouteAdopted = { [weak appModel] in
+            await appModel?.revokeDirectWatchSetupForEmbeddedTailnet()
+        }
+        let gatewayController = GatewayConnectionController(
+            appModel: appModel,
+            startDiscovery: !Self.screenshotModeEnabled,
+            deferDiscoveryUntilLocalNetworkRequest: true)
+        embeddedTailnet.onRouteChanged = { [weak appModel, weak gatewayController] in
+            // Sessions capture the route at creation; rebuild focused and fleet sessions.
+            gatewayController?.embeddedNetworkRouteDidChange()
+            guard let appModel else { return }
+            Task { await appModel.restartGatewaySessionsAfterForegroundStaleConnection() }
+        }
+        _embeddedTailnet = State(initialValue: embeddedTailnet)
         OpenClawAppModelRegistry.appModel = appModel
         _appearanceModel = State(initialValue: AppAppearanceModel())
         _appModel = State(initialValue: appModel)
         _voiceLiveActivityCoordinator = State(initialValue: VoiceLiveActivityCoordinator())
-        _gatewayController = State(
-            initialValue: GatewayConnectionController(
-                appModel: appModel,
-                startDiscovery: !Self.screenshotModeEnabled,
-                deferDiscoveryUntilLocalNetworkRequest: true))
+        _gatewayController = State(initialValue: gatewayController)
     }
 
     var body: some Scene {
@@ -719,6 +733,7 @@ struct OpenClawApp: App {
                 .environment(self.appModel)
                 .environment(self.appModel.voiceWake)
                 .environment(self.gatewayController)
+                .environment(self.embeddedTailnet)
                 .task {
                     if !Self.screenshotModeEnabled {
                         self.voiceLiveActivityCoordinator.start(appModel: self.appModel)
@@ -728,7 +743,9 @@ struct OpenClawApp: App {
                     self.appDelegate.scenePhaseChanged(self.scenePhase)
                     self.applyWindowTint()
                     self.gatewayController.setScenePhase(self.scenePhase)
+                    self.embeddedTailnet.setScenePhase(foreground: self.scenePhase == .active)
                     #if DEBUG
+                    await self.applyTailnetSimulatorSetupIfRequested()
                     if Self.liveActivityVoicePreviewEnabled {
                         LiveActivityManager.shared.startVoicePreview()
                     }
@@ -746,12 +763,25 @@ struct OpenClawApp: App {
                 }
                 .onChange(of: self.scenePhase) { _, newValue in
                     self.appModel.setScenePhase(newValue)
+                    self.embeddedTailnet.setScenePhase(foreground: newValue == .active)
                     self.gatewayController.setScenePhase(newValue)
                     self.appDelegate.scenePhaseChanged(newValue)
                     self.applyWindowTint()
                 }
         }
     }
+
+    #if DEBUG
+    private func applyTailnetSimulatorSetupIfRequested() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let flag = arguments.firstIndex(of: "--openclaw-tailnet-setup-code"),
+              arguments.indices.contains(flag + 1),
+              let link = GatewayConnectDeepLink.fromSetupCode(arguments[flag + 1]),
+              link.embeddedTailnet != nil
+        else { return }
+        _ = await self.embeddedTailnet.prepareForSetupLink(link)
+    }
+    #endif
 
     private static var screenshotModeEnabled: Bool {
         #if DEBUG

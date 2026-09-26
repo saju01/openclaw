@@ -337,6 +337,15 @@ extension SettingsProTab {
                 localized: "Setup code not recognized or uses an insecure ws:// gateway URL.")
             return false
         }
+        if parsedLink.embeddedTailnet != nil {
+            self.setupStatusText = String(localized: "Starting tailnet…")
+        }
+        if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
+            guard self.setupAttemptID == attemptID else { return false }
+            self.setupStatusText = failure
+            return false
+        }
+        guard self.setupAttemptID == attemptID else { return false }
         let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
         guard self.setupAttemptID == attemptID else { return false }
         self.stagedGatewaySetupLink = nil
@@ -438,6 +447,12 @@ extension SettingsProTab {
             self.finishGatewaySetupAttempt(attemptID)
             self.pendingTargetSuppression.resumeAutoConnect(.qrScanner, controller: self.gatewayController)
         }
+        if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
+            guard self.setupAttemptID == attemptID else { return }
+            self.setupStatusText = failure
+            return
+        }
+        guard self.setupAttemptID == attemptID else { return }
         let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
         guard self.setupAttemptID == attemptID else { return }
         await self.applyGatewayLink(link)

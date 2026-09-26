@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Network
 import OpenClawKit
 import SwiftUI
 
@@ -760,7 +761,13 @@ private func makeChatInlineWidgetWebView(
     coordinator: ChatInlineWidgetNavigationDelegate) -> WKWebView
 {
     let configuration = WKWebViewConfiguration()
-    configuration.websiteDataStore = .nonPersistent()
+    let dataStore = WKWebsiteDataStore.nonPersistent()
+    // Widget documents are gateway-hosted; follow the gateway route when one is published.
+    let proxies = GatewayNetworkRouter.shared.proxyConfigurations(for: resource.url)
+    if !proxies.isEmpty {
+        dataStore.proxyConfigurations = proxies
+    }
+    configuration.websiteDataStore = dataStore
     configuration.defaultWebpagePreferences.allowsContentJavaScript = allowsScripts
     configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     let webView = WKWebView(frame: .zero, configuration: configuration)

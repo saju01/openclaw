@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Observation
 import OpenClawKit
 import SwiftUI
@@ -565,7 +566,13 @@ struct AuthenticatedControlUIWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        // The Control UI is served by the gateway, so WebKit must use the gateway's route.
+        let proxies = GatewayNetworkRouter.shared.proxyConfigurations(for: self.url)
+        if !proxies.isEmpty {
+            dataStore.proxyConfigurations = proxies
+        }
+        configuration.websiteDataStore = dataStore
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         context.coordinator.installUserScripts(in: configuration.userContentController)

@@ -61,6 +61,18 @@ struct OpenClawTypographyTests {
         #expect(commandCenter.contains(".font(OpenClawType.captionMedium)"))
     }
 
+    @Test func `embedded tailnet settings use branded typography`() throws {
+        let source = try String(
+            contentsOf: Self.sourceURL("Design/SettingsEmbeddedTailnetSection.swift"),
+            encoding: .utf8)
+        #expect(source.contains(".font(OpenClawType.body)"))
+        #expect(source.contains(".font(OpenClawType.subhead)"))
+        #expect(source.contains(".font(OpenClawType.subheadSemiBold)"))
+        #expect(source.contains(".font(OpenClawType.footnote)"))
+        #expect(!source.contains(".font(."))
+        #expect(!source.contains("Button(\""))
+    }
+
     @Test func `bundled fonts load from app bundle`() {
         for name in OpenClawType.registeredPostScriptNames {
             #expect(UIFont(name: name, size: 12) != nil, "Missing bundled font: \(name)")

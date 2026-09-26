@@ -1290,7 +1290,19 @@ extension TalkRealtimeWebRTCSession {
 
         self.trace("openai webrtc offer exchange start urlHost=\(url.host ?? "unknown")")
         let startedAt = ProcessInfo.processInfo.systemUptime
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // The offer URL may be gateway-hosted; follow the gateway route (and fail closed when a
+        // required tailnet is down). Third-party offer hosts stay on the system network.
+        let data: Data
+        let response: URLResponse
+        if GatewayNetworkRouter.shared.isRouted(host: url.host) {
+            let configuration = URLSessionConfiguration.ephemeral
+            GatewayNetworkRouter.shared.apply(to: configuration, forHost: url.host)
+            let routed = URLSession(configuration: configuration)
+            defer { routed.finishTasksAndInvalidate() }
+            (data, response) = try await routed.data(for: request)
+        } else {
+            (data, response) = try await URLSession.shared.data(for: request)
+        }
         guard let http = response as? HTTPURLResponse else {
             throw NSError(domain: "TalkRealtimeWebRTC", code: 5, userInfo: [
                 NSLocalizedDescriptionKey: "OpenAI realtime offer returned a non-HTTP response",

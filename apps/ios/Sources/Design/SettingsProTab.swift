@@ -15,6 +15,7 @@ enum GatewayConnectionAttempt: Equatable {
 struct SettingsProTab: View {
     @Environment(NodeAppModel.self) var appModel
     @Environment(GatewayConnectionController.self) var gatewayController
+    @Environment(EmbeddedTailnetController.self) var embeddedTailnet
     @Environment(\.scenePhase) var scenePhase
     @AppStorage("node.displayName") var displayName: String = "iOS Node"
     @AppStorage("node.instanceId") var instanceId: String = UUID().uuidString

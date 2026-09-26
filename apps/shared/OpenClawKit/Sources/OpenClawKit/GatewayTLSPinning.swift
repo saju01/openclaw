@@ -777,6 +777,9 @@ public final class GatewayTLSPinningSession: NSObject, WebSocketSessioning, URLS
             config.urlCache = nil
         }
         config.waitsForConnectivity = true
+        // Every request path registers its authority before first touching the session, so the
+        // gateway route (for example the in-app tailnet proxy) is fixed for this session's life.
+        GatewayNetworkRouter.shared.apply(to: config, forHost: self.currentExpectedAuthority()?.host)
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
 

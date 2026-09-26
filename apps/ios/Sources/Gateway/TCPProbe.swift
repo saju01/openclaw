@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import OpenClawKit
 import os
 
 enum TCPProbe {
@@ -8,7 +9,11 @@ enum TCPProbe {
         guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return false }
 
         let endpointHost = NWEndpoint.Host(host)
-        let connection = NWConnection(host: endpointHost, port: nwPort, using: .tcp)
+        let parameters = NWParameters.tcp
+        // Routed gateways are probed through the same proxy their sessions use; an unavailable
+        // route fails closed instead of probing the system network.
+        GatewayNetworkRouter.shared.apply(to: parameters, forHost: host)
+        let connection = NWConnection(host: endpointHost, port: nwPort, using: parameters)
 
         return await withCheckedContinuation { cont in
             let queue = DispatchQueue(label: queueLabel)

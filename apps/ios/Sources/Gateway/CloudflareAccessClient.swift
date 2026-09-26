@@ -1,4 +1,5 @@
 import Foundation
+import OpenClawKit
 
 struct CloudflareAccessClient: Sendable {
     typealias Request = @Sendable (URLRequest, Int) async throws -> (Data, HTTPURLResponse)
@@ -154,6 +155,7 @@ struct CloudflareAccessClient: Sendable {
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = max(30, request.timeoutInterval)
+        GatewayNetworkRouter.shared.apply(to: configuration, forHost: request.url?.host)
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         do {

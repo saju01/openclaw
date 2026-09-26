@@ -8,6 +8,7 @@ public enum OpenClawWatchCommand: String, Codable, Sendable {
 public enum OpenClawWatchPayloadType: String, Codable, Sendable, Equatable {
     case notify = "watch.notify"
     case directNodeSetup = "watch.node.setup"
+    case directNodeReset = "watch.node.reset"
     case reply = "watch.reply"
     case appSnapshot = "watch.app.snapshot"
     case appSnapshotRequest = "watch.app.snapshotRequest"

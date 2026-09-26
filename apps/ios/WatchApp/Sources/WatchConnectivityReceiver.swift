@@ -64,15 +64,18 @@ final class WatchConnectivityReceiver: NSObject, @unchecked Sendable {
     private var acceptedExecApprovalSnapshotRequests: Set<WatchExecApprovalSnapshotRequestToken> = []
     private var acceptedExecApprovalSnapshotRequestOrder: [WatchExecApprovalSnapshotRequestToken] = []
     private let directNodeSetupHandler: @MainActor @Sendable (String, Int64) -> Void
+    private let directNodeResetHandler: @MainActor @Sendable () -> Void
     @MainActor private var chatDeliveryTask: Task<Void, Never>?
     @MainActor private var chatDeliveryReplayRequested = false
 
     init(
         store: WatchInboxStore,
-        directNodeSetupHandler: @escaping @MainActor @Sendable (String, Int64) -> Void)
+        directNodeSetupHandler: @escaping @MainActor @Sendable (String, Int64) -> Void,
+        directNodeResetHandler: @escaping @MainActor @Sendable () -> Void = {})
     {
         self.store = store
         self.directNodeSetupHandler = directNodeSetupHandler
+        self.directNodeResetHandler = directNodeResetHandler
         if WCSession.isSupported() {
             self.session = WCSession.default
         } else {
@@ -765,6 +768,13 @@ extension WatchConnectivityReceiver: WCSessionDelegate {
     {
         if (payload["type"] as? String) == WatchPayloadType.chatDeliveryReceipt.rawValue {
             return self.consumeChatDeliveryReceipt(payload, acknowledgment: acknowledgment)
+        }
+        if (payload["type"] as? String) == WatchPayloadType.directNodeReset.rawValue {
+            Task { @MainActor in
+                self.directNodeResetHandler()
+                acknowledgment?.accept()
+            }
+            return true
         }
         if let type = payload["type"] as? String,
            type == WatchPayloadType.directNodeSetup.rawValue,

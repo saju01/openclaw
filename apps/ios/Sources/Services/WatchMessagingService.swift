@@ -164,6 +164,10 @@ final class WatchMessagingService: @preconcurrency WatchMessagingServicing {
             WatchMessagingPayloadCodec.encodeDirectNodeSetupPayload(setupCode: setupCode))
     }
 
+    func sendDirectNodeReset() async throws -> WatchNotificationSendResult {
+        try await self.transport.sendPayload(WatchMessagingPayloadCodec.encodeDirectNodeResetPayload())
+    }
+
     func sendExecApprovalPrompt(
         _ message: OpenClawWatchExecApprovalPromptMessage) async throws -> WatchNotificationSendResult
     {

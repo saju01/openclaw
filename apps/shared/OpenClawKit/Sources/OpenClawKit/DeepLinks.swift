@@ -118,6 +118,7 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         case token
         case password
         case fallbackEndpoints
+        case embeddedTailnet
     }
 
     private struct SetupPayload: Decodable {
@@ -131,6 +132,7 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         let bootstrapToken: String?
         let token: String?
         let password: String?
+        let tailnet: GatewayEmbeddedTailnetSetup.Payload?
     }
 
     public let host: String
@@ -143,6 +145,9 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
     public let token: String?
     public let password: String?
     public let fallbackEndpoints: [GatewayConnectEndpoint]
+    /// Present only for setup codes that ask this device to join the Gateway's tailnet
+    /// with an in-app userspace node. Legacy setup inputs always leave this nil.
+    public let embeddedTailnet: GatewayEmbeddedTailnetSetup?
     private var hasInvalidTLSFingerprint = false
 
     public init(
@@ -155,7 +160,8 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         bootstrapToken: String?,
         token: String?,
         password: String?,
-        fallbackEndpoints: [GatewayConnectEndpoint] = [])
+        fallbackEndpoints: [GatewayConnectEndpoint] = [],
+        embeddedTailnet: GatewayEmbeddedTailnetSetup? = nil)
     {
         self.host = host
         self.port = port
@@ -169,6 +175,7 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         self.token = token
         self.password = password
         self.fallbackEndpoints = fallbackEndpoints
+        self.embeddedTailnet = embeddedTailnet
     }
 
     public init(from decoder: Decoder) throws {
@@ -206,6 +213,9 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         self.fallbackEndpoints = try container.decodeIfPresent(
             [GatewayConnectEndpoint].self,
             forKey: .fallbackEndpoints) ?? []
+        self.embeddedTailnet = try container.decodeIfPresent(
+            GatewayEmbeddedTailnetSetup.self,
+            forKey: .embeddedTailnet)
     }
 
     public var websocketURL: URL? {
@@ -242,7 +252,8 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
             expiresAtMs: self.expiresAtMs,
             bootstrapToken: self.bootstrapToken,
             token: self.token,
-            password: self.password)
+            password: self.password,
+            embeddedTailnet: self.embeddedTailnet)
     }
 
     /// Parse a gateway setup input from the QR/scanner/manual entry surfaces.
@@ -288,6 +299,10 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
     /// ordered candidates in `urls`. Host-based payloads provide `host` plus optional `port`
     /// and `tls`. In both cases, the optional `tlsFingerprint`, `expiresAtMs`, `bootstrapToken`,
     /// `token`, and `password` fields are also supported.
+    ///
+    /// An optional `tailnet` object (`{controlURL?, hostname?, required?}`) asks the app to
+    /// route this gateway through an in-app userspace Tailscale node. A malformed `tailnet`
+    /// object rejects the whole payload rather than silently connecting without it.
     public static func fromSetupCode(_ code: String) -> GatewayConnectDeepLink? {
         var trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -318,6 +333,13 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
     private static func decodeSetupPayload(from data: Data) -> GatewayConnectDeepLink? {
         guard let payload = try? JSONDecoder().decode(SetupPayload.self, from: data) else { return nil }
         guard isGatewaySetupExpiryValid(payload.expiresAtMs) else { return nil }
+        let embeddedTailnet: GatewayEmbeddedTailnetSetup?
+        if let tailnet = payload.tailnet {
+            guard let setup = GatewayEmbeddedTailnetSetup(payload: tailnet) else { return nil }
+            embeddedTailnet = setup
+        } else {
+            embeddedTailnet = nil
+        }
         let tlsFingerprintSha256 = normalizeGatewayTLSFingerprint(payload.tlsFingerprint)
         if payload.tlsFingerprint != nil, tlsFingerprintSha256 == nil {
             return nil
@@ -359,7 +381,8 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
                 bootstrapToken: primary.bootstrapToken,
                 token: primary.token,
                 password: primary.password,
-                fallbackEndpoints: fallbacks)
+                fallbackEndpoints: fallbacks,
+                embeddedTailnet: embeddedTailnet)
         }
         guard let host = payload.host?.trimmingCharacters(in: .whitespacesAndNewlines),
               !host.isEmpty
@@ -375,7 +398,8 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
             expiresAtMs: payload.expiresAtMs,
             bootstrapToken: payload.bootstrapToken,
             token: payload.token,
-            password: payload.password)
+            password: payload.password,
+            embeddedTailnet: embeddedTailnet)
     }
 
     private static func fromGatewayURLString(
@@ -420,7 +444,8 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         expiresAtMs: Int64? = nil,
         bootstrapToken: String?,
         token: String?,
-        password: String?) -> GatewayConnectDeepLink?
+        password: String?,
+        embeddedTailnet: GatewayEmbeddedTailnetSetup? = nil) -> GatewayConnectDeepLink?
     {
         let link = GatewayConnectDeepLink(
             host: host,
@@ -431,7 +456,8 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
             expiresAtMs: expiresAtMs,
             bootstrapToken: bootstrapToken,
             token: token,
-            password: password)
+            password: password,
+            embeddedTailnet: embeddedTailnet)
         return link.isValidEndpoint ? link : nil
     }
 

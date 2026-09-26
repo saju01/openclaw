@@ -23,11 +23,13 @@ final class GatewayOperatorFleet {
         let id = UUID()
         let session = GatewayNodeSession()
         let config: GatewayConnectConfig
+        let routeGeneration: UInt64
         var task: Task<Void, Never>?
         var isPausedForAttention = false
 
         init(config: GatewayConnectConfig) {
             self.config = config
+            self.routeGeneration = GatewayNetworkRouter.shared.generation
         }
     }
 
@@ -54,6 +56,7 @@ final class GatewayOperatorFleet {
         for (key, config) in desired {
             if let runtime = self.runtimes[key],
                runtime.config.hasSameConnectionInputs(as: config),
+               runtime.routeGeneration == GatewayNetworkRouter.shared.generation,
                runtime.task != nil || runtime.isPausedForAttention
             {
                 continue
@@ -105,7 +108,10 @@ final class GatewayOperatorFleet {
         }
         let runtimeID = runtime.id
         var attempt = 0
-        while !Task.isCancelled, self.runtimes[key]?.id == runtime.id {
+        while !Task.isCancelled,
+              self.runtimes[key]?.id == runtime.id,
+              runtime.routeGeneration == GatewayNetworkRouter.shared.generation
+        {
             do {
                 try await runtime.session.connect(
                     url: config.url,

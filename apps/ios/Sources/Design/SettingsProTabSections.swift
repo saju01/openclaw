@@ -139,6 +139,7 @@ extension SettingsProTab {
             }
 
             self.gatewaySetupCard
+            SettingsEmbeddedTailnetSection()
             self.pairedGatewaysCard
 
             Section {
