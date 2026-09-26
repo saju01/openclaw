@@ -146,13 +146,17 @@ final class WatchDirectNode {
                 localized: "Ignored an expired direct connection setup. Send setup again from iPhone.")
             return
         }
-        let newestInstalledSetupMs = configuration?.setupSentAtMs ?? 0
-        guard sentAtMs > max(Self.lastAcceptedSetupSentAtMs(), newestInstalledSetupMs) else { return }
+        guard WatchDirectSetupOrdering.isNewer(
+            sentAtMs: sentAtMs,
+            thanWatermark: Self.lastAcceptedSetupSentAtMs(),
+            installedSetupSentAtMs: configuration?.setupSentAtMs)
+        else { return }
         // Defense in depth: the iPhone never sends embedded-tailnet setups, and the watch has
         // no route to the iPhone's in-app tailnet proxy.
         if GatewayConnectDeepLink.fromSetupCode(setupCode)?.embeddedTailnet != nil {
-            // A defensive rejection must also revoke any older direct setup; otherwise a delayed
-            // tailnet payload could leave the Watch connected with stale direct credentials.
+            // A defensive rejection must also revoke any older direct setup. Advance the durable
+            // watermark first so a queued setup from before this revocation cannot reinstall it.
+            Self.saveLastAcceptedSetupSentAtMs(sentAtMs)
             self.forget()
             self.statusText = String(
                 localized: "Direct mode is unavailable for tailnet-only Gateways. Using iPhone relay.")
@@ -190,6 +194,17 @@ final class WatchDirectNode {
         self.endpointText = configuration.endpointText
         self.statusText = String(localized: "Setup received. Connecting…")
         self.setEnabled(true)
+    }
+
+    func revoke(sentAtMs: Int64) {
+        guard WatchDirectSetupOrdering.isNewer(
+            sentAtMs: sentAtMs,
+            thanWatermark: Self.lastAcceptedSetupSentAtMs())
+        else { return }
+        // Persist before deleting credentials so a delayed transferUserInfo setup cannot restore
+        // direct mode after the iPhone has required the in-app tailnet route.
+        Self.saveLastAcceptedSetupSentAtMs(sentAtMs)
+        self.forget()
     }
 
     func setEnabled(_ enabled: Bool) {

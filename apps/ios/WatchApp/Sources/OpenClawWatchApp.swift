@@ -107,8 +107,8 @@ struct OpenClawWatchApp: App {
                             directNodeSetupHandler: { [weak directNode = self.directNode] setupCode, sentAtMs in
                                 directNode?.configure(setupCode: setupCode, sentAtMs: sentAtMs)
                             },
-                            directNodeResetHandler: { [weak directNode = self.directNode] in
-                                directNode?.forget()
+                            directNodeResetHandler: { [weak directNode = self.directNode] sentAtMs in
+                                directNode?.revoke(sentAtMs: sentAtMs)
                             })
                         receiver.activate()
                         self.receiver = receiver

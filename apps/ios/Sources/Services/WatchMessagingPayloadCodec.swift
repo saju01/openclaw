@@ -83,8 +83,11 @@ enum WatchMessagingPayloadCodec {
         return payload
     }
 
-    static func encodeDirectNodeResetPayload() -> [String: Any] {
-        ["type": OpenClawWatchPayloadType.directNodeReset.rawValue]
+    static func encodeDirectNodeResetPayload(sentAtMs: Int64 = WatchMessagingPayloadCodec.nowMs()) -> [String: Any] {
+        [
+            "type": OpenClawWatchPayloadType.directNodeReset.rawValue,
+            "sentAtMs": sentAtMs,
+        ]
     }
 
     static func encodeDirectNodeSetupPayload(setupCode: String) -> [String: Any] {
