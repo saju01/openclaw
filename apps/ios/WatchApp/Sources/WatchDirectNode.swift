@@ -151,6 +151,9 @@ final class WatchDirectNode {
         // Defense in depth: the iPhone never sends embedded-tailnet setups, and the watch has
         // no route to the iPhone's in-app tailnet proxy.
         if GatewayConnectDeepLink.fromSetupCode(setupCode)?.embeddedTailnet != nil {
+            // A defensive rejection must also revoke any older direct setup; otherwise a delayed
+            // tailnet payload could leave the Watch connected with stale direct credentials.
+            self.forget()
             self.statusText = String(
                 localized: "Direct mode is unavailable for tailnet-only Gateways. Using iPhone relay.")
             return
