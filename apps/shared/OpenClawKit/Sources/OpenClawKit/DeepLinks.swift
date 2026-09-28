@@ -145,9 +145,11 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
     public let token: String?
     public let password: String?
     public let fallbackEndpoints: [GatewayConnectEndpoint]
-    /// Present only for setup codes that ask this device to join the Gateway's tailnet
-    /// with an in-app userspace node. Legacy setup inputs always leave this nil.
-    public let embeddedTailnet: GatewayEmbeddedTailnetSetup?
+    /// Present for setup codes that ask this device to join the Gateway's tailnet with an
+    /// in-app userspace node, either explicitly (`tailnet` object) or inferred because a legacy
+    /// setup code's primary host is tailnet-only. Deep links, raw URLs, and persisted links
+    /// never infer it.
+    public private(set) var embeddedTailnet: GatewayEmbeddedTailnetSetup?
     private var hasInvalidTLSFingerprint = false
 
     public init(
@@ -237,6 +239,14 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
             self.fallbackEndpoints
     }
 
+    /// The same link with a different embedded-tailnet choice, for example after the user
+    /// flips "Connect through Tailscale" during setup.
+    public func withEmbeddedTailnet(_ setup: GatewayEmbeddedTailnetSetup?) -> GatewayConnectDeepLink {
+        var copy = self
+        copy.embeddedTailnet = setup
+        return copy
+    }
+
     public func selectingEndpoint(_ endpoint: GatewayConnectEndpoint) -> GatewayConnectDeepLink {
         // A setup pin proves only the primary direct endpoint. Proxy fallbacks must use
         // their own system trust instead of inheriting a certificate identity they do not own.
@@ -302,8 +312,15 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
     ///
     /// An optional `tailnet` object (`{controlURL?, hostname?, required?}`) asks the app to
     /// route this gateway through an in-app userspace Tailscale node. A malformed `tailnet`
-    /// object rejects the whole payload rather than silently connecting without it.
-    public static func fromSetupCode(_ code: String) -> GatewayConnectDeepLink? {
+    /// object rejects the whole payload rather than silently connecting without it. Without a
+    /// `tailnet` object, a tailnet-only primary host (`*.ts.net`, `100.64.0.0/10`,
+    /// `fd7a:115c:a1e0::/48`) infers the default required setup; other hosts stay direct.
+    /// An explicit object always wins, including `required: false`.
+    ///
+    /// `inferTailnet: false` keeps the pre-inference shape for callers that must not change
+    /// behavior for existing legacy codes (for example Apple Watch direct setup, which can never
+    /// use the iPhone's in-app tailnet and gates only on an explicit `tailnet` object).
+    public static func fromSetupCode(_ code: String, inferTailnet: Bool = true) -> GatewayConnectDeepLink? {
         var trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if trimmed.range(
@@ -312,17 +329,17 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         {
             trimmed = String(trimmed.dropFirst(self.pairingSetupURLPrefix.count))
         }
-        if let link = decodeSetupPayload(from: Data(trimmed.utf8)) {
+        if let link = decodeSetupPayload(from: Data(trimmed.utf8), inferTailnet: inferTailnet) {
             return link
         }
         if let data = decodeBase64Url(trimmed),
-           let link = decodeSetupPayload(from: data)
+           let link = decodeSetupPayload(from: data, inferTailnet: inferTailnet)
         {
             return link
         }
         for candidate in self.setupCodeCandidates(in: trimmed) where candidate != trimmed {
             if let data = decodeBase64Url(candidate),
-               let link = decodeSetupPayload(from: data)
+               let link = decodeSetupPayload(from: data, inferTailnet: inferTailnet)
             {
                 return link
             }
@@ -330,8 +347,15 @@ public struct GatewayConnectDeepLink: Codable, Sendable, Equatable {
         return nil
     }
 
-    private static func decodeSetupPayload(from data: Data) -> GatewayConnectDeepLink? {
-        guard let payload = try? JSONDecoder().decode(SetupPayload.self, from: data) else { return nil }
+    private static func decodeSetupPayload(from data: Data, inferTailnet: Bool) -> GatewayConnectDeepLink? {
+        guard let payload = try? JSONDecoder().decode(SetupPayload.self, from: data),
+              let link = self.decodeValidatedSetupPayload(payload)
+        else { return nil }
+        guard payload.tailnet == nil, inferTailnet else { return link }
+        return link.withEmbeddedTailnet(GatewayEmbeddedTailnetSetup.inferred(forHost: link.host))
+    }
+
+    private static func decodeValidatedSetupPayload(_ payload: SetupPayload) -> GatewayConnectDeepLink? {
         guard isGatewaySetupExpiryValid(payload.expiresAtMs) else { return nil }
         let embeddedTailnet: GatewayEmbeddedTailnetSetup?
         if let tailnet = payload.tailnet {

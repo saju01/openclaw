@@ -376,7 +376,8 @@ private func gatewayLink(from raw: String) -> GatewayConnectDeepLink? {
             tls: true,
             bootstrapToken: "tok",
             token: nil,
-            password: nil))
+            password: nil,
+                embeddedTailnet: .defaults))
     }
 
     @Test func setupCodeCapsGatewayEndpoints() throws {
@@ -409,7 +410,8 @@ private func gatewayLink(from raw: String) -> GatewayConnectDeepLink? {
                 tls: true,
                 bootstrapToken: "tok",
                 token: nil,
-                password: nil))
+                password: nil,
+                embeddedTailnet: .defaults))
     }
 
     @Test func setupCodeParsesHostPayloadWithTLSDefaultPort() {
@@ -421,7 +423,8 @@ private func gatewayLink(from raw: String) -> GatewayConnectDeepLink? {
                 tls: true,
                 bootstrapToken: "tok",
                 token: nil,
-                password: nil))
+                password: nil,
+                embeddedTailnet: .defaults))
     }
 
     @Test func setupCodeRejectsInsecureHostPayload() {
@@ -456,7 +459,8 @@ private func gatewayLink(from raw: String) -> GatewayConnectDeepLink? {
                 tls: true,
                 bootstrapToken: "tok",
                 token: nil,
-                password: nil))
+                password: nil,
+                embeddedTailnet: .defaults))
     }
 
     @Test func setupInputParsesRawGatewayURL() {

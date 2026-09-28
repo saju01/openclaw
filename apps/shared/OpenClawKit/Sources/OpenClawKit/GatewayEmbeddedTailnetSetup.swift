@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 /// Setup-code extension asking the app to reach this Gateway through an in-app,
 /// userspace Tailscale node (tsnet) instead of the system network or a VPN profile.
@@ -6,9 +7,59 @@ import Foundation
 /// Wire shape inside the setup payload: `"tailnet": {"controlURL"?, "hostname"?, "required"?}`.
 /// Every field is optional; an empty object selects Tailscale's control plane, the
 /// `openclaw-iphone` hostname, and a required route.
+///
+/// Legacy setup codes without a `tailnet` object whose primary Gateway host is a tailnet-only
+/// address (`*.ts.net`, `100.64.0.0/10`, or `fd7a:115c:a1e0::/48`) are treated as if they
+/// carried `"tailnet": {}` (see `inferred(forHost:)`). Those names and addresses resolve and
+/// route only inside a tailnet, and relying on the system network or a system VPN profile made
+/// such gateways fail silently whenever the Tailscale app was off. An explicit `tailnet` object
+/// always wins, including `required: false`.
 public struct GatewayEmbeddedTailnetSetup: Codable, Sendable, Equatable {
     public static let defaultControlURL = URL(string: "https://controlplane.tailscale.com")!
     public static let defaultHostname = "openclaw-iphone"
+    /// Tailscale control plane, `openclaw-iphone`, required route: the shape an empty
+    /// `tailnet` object selects and the one inferred for tailnet-only legacy hosts.
+    public static let defaults = GatewayEmbeddedTailnetSetup(
+        uncheckedControlURL: defaultControlURL,
+        hostname: defaultHostname,
+        required: true)
+
+    /// Setup inferred for a legacy setup code without a `tailnet` object. Only tailnet-only
+    /// hosts get one; every other legacy host keeps today's direct route (`nil`).
+    public static func inferred(forHost host: String) -> GatewayEmbeddedTailnetSetup? {
+        self.isTailnetHost(host) ? self.defaults : nil
+    }
+
+    /// True for addresses that only exist inside a tailnet: MagicDNS names under `ts.net`,
+    /// Tailscale's CGNAT IPv4 range `100.64.0.0/10`, and its ULA IPv6 range
+    /// `fd7a:115c:a1e0::/48`. A hint about reachability, not proof of any VPN state.
+    public static func isTailnetHost(_ raw: String) -> Bool {
+        var host = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if host.hasSuffix(".") { host.removeLast() }
+        if host.hasSuffix(".ts.net") {
+            return host.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
+                !label.isEmpty && label.count <= 63 && label.first != "-" && label.last != "-"
+                    && label.utf8.allSatisfy { byte in
+                        (97...122).contains(byte) || (48...57).contains(byte) || byte == 45
+                    }
+            }
+        }
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            host = String(host.dropFirst().dropLast())
+        }
+        if let address = IPv4Address(host) {
+            let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+            guard octets.count == 4,
+                  octets.allSatisfy({ octet in UInt8(octet).map { String($0) == octet } ?? false })
+            else { return false }
+            let bytes = address.rawValue
+            return bytes[0] == 100 && (64...127).contains(bytes[1])
+        }
+        if let address = IPv6Address(host) {
+            return address.rawValue.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
+        }
+        return false
+    }
 
     /// Coordination server. Only HTTPS origins are accepted.
     public let controlURL: URL
@@ -52,6 +103,12 @@ public struct GatewayEmbeddedTailnetSetup: Codable, Sendable, Equatable {
         }
         self.controlURL = url
         self.hostname = name
+        self.required = required
+    }
+
+    private init(uncheckedControlURL: URL, hostname: String, required: Bool) {
+        self.controlURL = uncheckedControlURL
+        self.hostname = hostname
         self.required = required
     }
 

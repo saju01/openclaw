@@ -1,44 +1,221 @@
 {
-  "_comment": "Setup payload fixtures (decoded JSON, before base64url). `payload` is what the Gateway encodes into a setup code; `expect` is null when the app must reject it. Tokens are synthetic.",
+  "_comment": "Setup payload fixtures (decoded JSON, before base64url). `payload` is what the Gateway encodes into a setup code; `expect` is null when the app must reject it. Tokens are synthetic. Legacy payloads without `tailnet` infer the default required setup only for *.ts.net, 100.64.0.0/10, and fd7a:115c:a1e0::/48 primary hosts.",
   "cases": [
     {
-      "name": "legacy-url",
-      "payload": {"url": "wss://gateway.example.ts.net", "bootstrapToken": "synthetic-bootstrap"},
-      "expect": {"host": "gateway.example.ts.net", "tailnet": null}
+      "name": "legacy-ts-net-inferred",
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "openclaw-iphone",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "legacy-ordinary-host",
+      "payload": {
+        "url": "wss://gateway.example.com",
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "gateway.example.com",
+        "tailnet": null
+      }
+    },
+    {
+      "name": "legacy-lan-host",
+      "payload": {
+        "url": "ws://192.168.1.20:18789",
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "192.168.1.20",
+        "tailnet": null
+      }
+    },
+    {
+      "name": "legacy-cgnat-ipv4-inferred",
+      "payload": {
+        "url": "wss://100.101.102.103",
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "100.101.102.103",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "openclaw-iphone",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "legacy-cgnat-ipv6-inferred",
+      "payload": {
+        "url": "wss://[fd7a:115c:a1e0::1]",
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "[fd7a:115c:a1e0::1]",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "openclaw-iphone",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "legacy-host-payload-ts-net-inferred",
+      "payload": {
+        "host": "gateway.example.ts.net",
+        "port": 443,
+        "tls": true,
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "openclaw-iphone",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "legacy-outside-cgnat-not-inferred",
+      "payload": {
+        "url": "wss://100.128.0.1",
+        "bootstrapToken": "synthetic-bootstrap"
+      },
+      "expect": {
+        "host": "100.128.0.1",
+        "tailnet": null
+      }
+    },
+    {
+      "name": "explicit-wins-on-ts-net",
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "bootstrapToken": "synthetic-bootstrap",
+        "tailnet": {
+          "hostname": "family-phone"
+        }
+      },
+      "expect": {
+        "host": "gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "family-phone",
+          "required": true
+        }
+      }
+    },
+    {
+      "name": "explicit-required-false-on-ts-net",
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "bootstrapToken": "synthetic-bootstrap",
+        "tailnet": {
+          "required": false
+        }
+      },
+      "expect": {
+        "host": "gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "openclaw-iphone",
+          "required": false
+        }
+      }
     },
     {
       "name": "extended-defaults",
-      "payload": {"url": "wss://gateway.example.ts.net", "bootstrapToken": "synthetic-bootstrap", "tailnet": {}},
-      "expect": {"host": "gateway.example.ts.net", "tailnet": {"controlURL": "https://controlplane.tailscale.com", "hostname": "openclaw-iphone", "required": true}}
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "bootstrapToken": "synthetic-bootstrap",
+        "tailnet": {}
+      },
+      "expect": {
+        "host": "gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "https://controlplane.tailscale.com",
+          "hostname": "openclaw-iphone",
+          "required": true
+        }
+      }
     },
     {
       "name": "extended-custom",
-      "payload": {"host": "gw.corp.example", "port": 443, "tls": true, "bootstrapToken": "synthetic-bootstrap", "tailnet": {"controlURL": "https://Headscale.Example.com/", "hostname": "Family-iPhone", "required": false}},
-      "expect": {"host": "gw.corp.example", "tailnet": {"controlURL": "https://headscale.example.com", "hostname": "family-iphone", "required": false}}
+      "payload": {
+        "host": "gw.corp.example",
+        "port": 443,
+        "tls": true,
+        "bootstrapToken": "synthetic-bootstrap",
+        "tailnet": {
+          "controlURL": "https://Headscale.Example.com/",
+          "hostname": "Family-iPhone",
+          "required": false
+        }
+      },
+      "expect": {
+        "host": "gw.corp.example",
+        "tailnet": {
+          "controlURL": "https://headscale.example.com",
+          "hostname": "family-iphone",
+          "required": false
+        }
+      }
     },
     {
       "name": "invalid-http-control",
-      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"controlURL": "http://controlplane.tailscale.com"}},
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "http://controlplane.tailscale.com"
+        }
+      },
       "expect": null
     },
     {
       "name": "invalid-control-credentials",
-      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"controlURL": "https://user:pw@controlplane.tailscale.com"}},
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "tailnet": {
+          "controlURL": "https://user:pw@controlplane.tailscale.com"
+        }
+      },
       "expect": null
     },
     {
       "name": "invalid-hostname",
-      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"hostname": "bad host.name"}},
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "tailnet": {
+          "hostname": "bad host.name"
+        }
+      },
       "expect": null
     },
     {
       "name": "invalid-required-type",
-      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": {"required": "yes"}},
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "tailnet": {
+          "required": "yes"
+        }
+      },
       "expect": null
     },
     {
       "name": "invalid-tailnet-type",
-      "payload": {"url": "wss://gateway.example.ts.net", "tailnet": true},
+      "payload": {
+        "url": "wss://gateway.example.ts.net",
+        "tailnet": true
+      },
       "expect": null
     }
   ]
