@@ -70,7 +70,9 @@ struct EmbeddedTailnetSetupStepSection: View {
     private var stepState: EmbeddedTailnetStepState {
         // A node that is not set up yet still reads as not signed in.
         guard self.tailnet.isConfigured else { return .notSignedIn }
-        return EmbeddedTailnetStepState(controller: self.tailnet)
+        return EmbeddedTailnetStepState(
+            controller: self.tailnet,
+            selectedSetup: self.choice?.effectiveLink.embeddedTailnet)
     }
 
     @ViewBuilder
@@ -121,6 +123,18 @@ struct EmbeddedTailnetSetupStepSection: View {
                     Image(systemName: "arrow.clockwise")
                 }
             }
+        } else if case .differentNetwork = state {
+            Button(role: .destructive) {
+                Task { await self.tailnet.remove() }
+            } label: {
+                Label {
+                    Text("Reset existing Tailnet node").font(OpenClawType.body)
+                } icon: {
+                    Image(systemName: "trash")
+                }
+            }
+            .disabled(self.isConnecting || self.isSigningIn)
+            .accessibilityIdentifier("TailnetSetup.ResetExistingNode")
         }
     }
 

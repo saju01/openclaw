@@ -866,11 +866,11 @@ extension OnboardingWizardView {
         self.qrCodeCompletion.cancel()
         self.setupCodeStatus = nil
         let raw = self.setupCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else {
+        let stagedLink = self.setupLinkStaging.link
+        guard !raw.isEmpty || stagedLink != nil else {
             self.setupCodeStatus = "Paste a setup code to continue."
             return
         }
-        self.clearStagedGatewaySetupLink()
 
         if AppleReviewDemoMode.isSetupCode(raw) {
             self.setupCode = ""
@@ -879,14 +879,17 @@ extension OnboardingWizardView {
             return
         }
 
-        guard let rawLink = GatewayConnectDeepLink.fromSetupInput(raw) else {
+        guard let rawLink = raw.isEmpty ? stagedLink : GatewayConnectDeepLink.fromSetupInput(raw) else {
             self.setupCodeStatus = "Setup code not recognized or uses an insecure ws:// gateway URL."
             return
         }
         let parsedLink = EmbeddedTailnetSetupChoice.resolve(rawLink, choice: self.tailnetChoice)
 
         guard let attemptID = self.beginSetupAttempt() else { return }
-        defer { self.finishSetupAttempt(attemptID) }
+        defer {
+            self.finishSetupAttempt(attemptID)
+            self.pendingTargetSuppression.resumeAutoConnect(controller: self.gatewayController)
+        }
         if parsedLink.embeddedTailnet != nil {
             self.setupCodeStatus = String(localized: "Starting Tailscale…")
         }
@@ -899,6 +902,7 @@ extension OnboardingWizardView {
         let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
         guard self.setupAttemptID == attemptID else { return }
 
+        _ = self.setupLinkStaging.take()
         await self.applyGatewayLink(link)
         self.setupCode = ""
         self.tailnetChoice = nil
@@ -932,30 +936,16 @@ extension OnboardingWizardView {
 
     private func handleScannedLink(_ link: GatewayConnectDeepLink) {
         self.showQRScanner = false
-        guard let attemptID = self.beginSetupAttempt() else { return }
-        self.setupCodeStatus = nil
-        Task { await self.connectScannedLink(link, attemptID: attemptID) }
-    }
-
-    private func connectScannedLink(_ parsedLink: GatewayConnectDeepLink, attemptID: UUID) async {
-        defer {
-            self.finishSetupAttempt(attemptID)
-            self.pendingTargetSuppression.resumeAutoConnect(.qrScanner, controller: self.gatewayController)
+        self.invalidateSetupAttempt()
+        self.setupCode = ""
+        self.setupLinkStaging.stage(link)
+        self.tailnetChoice = EmbeddedTailnetSetupChoice(link: link)
+        if self.selectedMode == nil {
+            self.selectedMode = link.tls ? .remoteDomain : .homeNetwork
         }
-        if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
-            guard self.setupAttemptID == attemptID else { return }
-            self.setupCodeStatus = failure
-            return
-        }
-        guard self.setupAttemptID == attemptID else { return }
-        let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
-        guard self.setupAttemptID == attemptID else { return }
-        self.qrCodeCompletion.stage(link)
-        await self.applyGatewayLink(link)
-        self.connectMessage = "Connecting via setup code…"
-        self.statusLine = "Setup code loaded. Connecting to \(link.host):\(link.port)…"
-        self.navigate(to: .connect)
-        await self.connectManual(setupAttemptID: attemptID)
+        self.setupCodeStatus = "Setup link loaded for \(link.host):\(link.port). Tap Connect to apply."
+        self.statusLine = self.setupCodeStatus ?? ""
+        self.navigate(to: .mode)
     }
 
     private func applyPendingGatewaySetupLinkIfNeeded() {
@@ -1011,7 +1001,7 @@ extension OnboardingWizardView {
 
     private func clearStagedGatewaySetupLink() {
         guard self.setupLinkStaging.cancel() else { return }
-        self.pendingTargetSuppression.resumeAutoConnect(.setupLink, controller: self.gatewayController)
+        self.pendingTargetSuppression.resumeAutoConnect(controller: self.gatewayController)
         let message = "Setup link cleared."
         self.localConnectionFailure = nil
         self.setupCodeStatus = message

@@ -419,9 +419,8 @@ extension SettingsProTab {
 
     func handleScannedGatewayLink(_ link: GatewayConnectDeepLink) {
         self.showQRScanner = false
-        guard let attemptID = self.beginGatewaySetupAttempt() else { return }
-        self.setupCode = ""
-        Task { await self.connectAfterScannedGatewayLink(link, attemptID: attemptID) }
+        self.pendingTargetSuppression.resumeAutoConnect(.qrScanner, controller: self.gatewayController)
+        self.applyGatewaySetupLink(link)
     }
 
     func handleScannedSetupCode(_ code: String) {
@@ -455,33 +454,6 @@ extension SettingsProTab {
     private func takeStagedGatewaySetupSuppression() -> GatewayConnectionController.AutoConnectSuppressionLease? {
         self.stagedGatewaySetupLink = nil
         return self.pendingTargetSuppression.take(ifOwnedBy: .setupLink)
-    }
-
-    func connectAfterScannedGatewayLink(_ parsedLink: GatewayConnectDeepLink, attemptID: UUID) async {
-        defer {
-            self.finishGatewaySetupAttempt(attemptID)
-            self.pendingTargetSuppression.resumeAutoConnect(.qrScanner, controller: self.gatewayController)
-        }
-        if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
-            guard self.setupAttemptID == attemptID else { return }
-            self.setupStatusText = failure
-            return
-        }
-        guard self.setupAttemptID == attemptID else { return }
-        let link = await self.gatewayController.selectReachableSetupLink(parsedLink)
-        guard self.setupAttemptID == attemptID else { return }
-        await self.applyGatewayLink(link)
-        self.setupStatusText = String(
-            format: String(localized: "QR loaded. Connecting to %@:%@..."),
-            link.host,
-            link.port.formatted())
-        let host = self.manualGatewayHost.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard self.resolvedManualPort(host: host) != nil else {
-            self.setupStatusText = String(localized: "Failed: invalid port")
-            return
-        }
-        guard await self.preflightGateway(host: host) else { return }
-        await self.connectManual(setupAttemptID: attemptID)
     }
 
     func connectManual(setupAttemptID: UUID? = nil) async {

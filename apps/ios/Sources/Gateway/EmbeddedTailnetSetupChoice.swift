@@ -52,11 +52,22 @@ struct EmbeddedTailnetSetupChoice: Equatable {
 
     /// Shown when the user turned Tailscale off for an address that needs it.
     var directRouteWarning: String? {
-        guard !self.connectThroughTailscale, self.isTailnetOnlyHost else { return nil }
+        guard !self.connectThroughTailscale else { return nil }
+        if self.link.embeddedTailnet?.required == true {
+            return String(
+                localized: "This setup requires Tailscale. Turning it off can prevent the gateway from connecting.")
+        }
+        guard self.isTailnetOnlyHost else { return nil }
         return String(localized: """
         This address only works inside a tailnet. With in-app Tailscale off, open the Tailscale \
         app on this device and connect to the same tailnet first, or the connection will fail.
         """)
+    }
+}
+
+enum EmbeddedTailnetSettingsPresentation {
+    static func showsStandaloneSection(stagedChoice: EmbeddedTailnetSetupChoice?) -> Bool {
+        stagedChoice == nil
     }
 }
 
@@ -67,10 +78,24 @@ enum EmbeddedTailnetStepState: Equatable {
     case reconnecting
     case needsSignIn
     case needsApproval
+    case differentNetwork
     case connected(address: String?)
     case failed(String)
 
-    init(phase: EmbeddedTailnetPhase, hasBeenRunning: Bool, status: EmbeddedTailnetStatus?) {
+    init(
+        phase: EmbeddedTailnetPhase,
+        hasBeenRunning: Bool,
+        status: EmbeddedTailnetStatus?,
+        selectedSetup: GatewayEmbeddedTailnetSetup? = nil,
+        configuredSetup: GatewayEmbeddedTailnetSetup? = nil)
+    {
+        if let selectedSetup, let configuredSetup,
+           selectedSetup.controlURL != configuredSetup.controlURL ||
+           selectedSetup.hostname != configuredSetup.hostname
+        {
+            self = .differentNetwork
+            return
+        }
         switch phase {
         case .notConfigured:
             self = .notSignedIn
@@ -88,11 +113,13 @@ enum EmbeddedTailnetStepState: Equatable {
     }
 
     @MainActor
-    init(controller: EmbeddedTailnetController) {
+    init(controller: EmbeddedTailnetController, selectedSetup: GatewayEmbeddedTailnetSetup? = nil) {
         self.init(
             phase: controller.phase,
             hasBeenRunning: controller.hasBeenRunning,
-            status: controller.status)
+            status: controller.status,
+            selectedSetup: selectedSetup,
+            configuredSetup: controller.config?.setup)
     }
 
     var title: String {
@@ -102,6 +129,7 @@ enum EmbeddedTailnetStepState: Equatable {
         case .reconnecting: String(localized: "Reconnecting to Tailscale…")
         case .needsSignIn: String(localized: "Sign-in required")
         case .needsApproval: String(localized: "Waiting for admin approval")
+        case .differentNetwork: String(localized: "Different Tailscale network")
         case .connected: String(localized: "Connected")
         case .failed: String(localized: "Tailscale is not connected")
         }
@@ -117,6 +145,8 @@ enum EmbeddedTailnetStepState: Equatable {
             String(localized: "Rechecking the tailnet after the app returned. Gateway traffic resumes when it is back.")
         case .needsApproval:
             String(localized: "Ask your tailnet admin to approve this device, then tap Reconnect.")
+        case .differentNetwork:
+            String(localized: "Reset the existing Tailnet node to use the network in this setup code.")
         case let .connected(address):
             if let address {
                 String(format: String(localized: "Tailnet IP %@. You can pair now."), address)

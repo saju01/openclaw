@@ -73,6 +73,43 @@ struct EmbeddedTailnetSetupChoiceTests {
         #expect(EmbeddedTailnetSetupChoice.updated(nil, forInput: "") == nil)
         #expect(EmbeddedTailnetSetupChoice.updated(nil, forInput: "not a setup code") == nil)
     }
+
+    @Test func `scanned link is a staged choice and resolve honors its toggle`() throws {
+        let code = try fixtureSetupCode([
+            "url": "wss://gateway.example.com",
+            "tailnet": ["hostname": "scanned-phone", "required": true],
+        ])
+        let link = try #require(GatewayConnectDeepLink.fromSetupInput(code))
+        var choice = EmbeddedTailnetSetupChoice(link: link)
+        #expect(choice.connectThroughTailscale)
+        #expect(EmbeddedTailnetSetupChoice.resolve(link, choice: choice).embeddedTailnet?.hostname == "scanned-phone")
+        choice.connectThroughTailscale = false
+        #expect(EmbeddedTailnetSetupChoice.resolve(link, choice: choice).embeddedTailnet == nil)
+    }
+
+    @Test func `required setup warns when disabled even for an ordinary host`() throws {
+        let requiredCode = try fixtureSetupCode([
+            "url": "wss://gateway.example.com", "tailnet": ["required": true],
+        ])
+        var required = try #require(EmbeddedTailnetSetupChoice.updated(nil, forInput: requiredCode))
+        required.connectThroughTailscale = false
+        #expect(required.directRouteWarning?.contains("requires Tailscale") == true)
+        let optionalCode = try fixtureSetupCode([
+            "url": "wss://gateway.example.com", "tailnet": ["required": false],
+        ])
+        var optional = try #require(EmbeddedTailnetSetupChoice.updated(nil, forInput: optionalCode))
+        optional.connectThroughTailscale = false
+        #expect(optional.directRouteWarning == nil)
+    }
+
+    @Test func `standalone settings control hides for either staged toggle value`() throws {
+        let code = try fixtureSetupCode(["url": "wss://gateway.example.ts.net"])
+        var choice = try #require(EmbeddedTailnetSetupChoice.updated(nil, forInput: code))
+        #expect(!EmbeddedTailnetSettingsPresentation.showsStandaloneSection(stagedChoice: choice))
+        choice.connectThroughTailscale = false
+        #expect(!EmbeddedTailnetSettingsPresentation.showsStandaloneSection(stagedChoice: choice))
+        #expect(EmbeddedTailnetSettingsPresentation.showsStandaloneSection(stagedChoice: nil))
+    }
 }
 
 /// Tailscale step presentation for each in-app node state.
@@ -102,6 +139,26 @@ struct EmbeddedTailnetStepStateTests {
         #expect(state == .connected(address: "100.101.102.103"))
         #expect(state.isConnected && !state.showsSignIn)
         #expect(state.detail.contains("100.101.102.103"))
+    }
+
+    @Test func `running node on a different effective setup is not connected`() throws {
+        let selected = try #require(GatewayEmbeddedTailnetSetup(
+            controlURL: "https://control.one.example", hostname: "selected-phone"))
+        let configured = try #require(GatewayEmbeddedTailnetSetup(
+            controlURL: "https://control.two.example", hostname: "existing-phone"))
+        let mismatch = EmbeddedTailnetStepState(
+            phase: .running, hasBeenRunning: true, status: self.running,
+            selectedSetup: selected, configuredSetup: configured)
+        #expect(mismatch == .differentNetwork)
+        #expect(!mismatch.isConnected)
+        #expect(mismatch.title == "Different Tailscale network")
+        #expect(mismatch.detail.contains("Reset the existing Tailnet node"))
+        let optional = try #require(GatewayEmbeddedTailnetSetup(
+            controlURL: selected.controlURL.absoluteString, hostname: selected.hostname, required: false))
+        let match = EmbeddedTailnetStepState(
+            phase: .running, hasBeenRunning: true, status: self.running,
+            selectedSetup: optional, configuredSetup: selected)
+        #expect(match.isConnected)
     }
 
     @Test func `failure text names the fix`() {

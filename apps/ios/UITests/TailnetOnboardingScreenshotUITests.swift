@@ -31,6 +31,7 @@ final class TailnetOnboardingScreenshotUITests: XCTestCase {
         let signIn = app.buttons["TailnetSetup.SignIn"]
         self.scrollTo(signIn, in: app)
         XCTAssertTrue(signIn.exists)
+        XCTAssertFalse(app.buttons["TailnetSettings.Enable"].exists)
         self.capture("tailnet-01-legacy-ts-net-toggle-sign-in")
     }
 
@@ -67,6 +68,13 @@ final class TailnetOnboardingScreenshotUITests: XCTestCase {
         self.scrollTo(state, in: app)
         XCTAssertTrue(app.buttons["TailnetSetup.SignIn"].exists)
         self.capture("tailnet-03-error-state")
+        XCTAssertFalse(app.buttons["TailnetSettings.SignIn"].exists)
+    }
+
+    func testSettingsTailnetFailureShowsSignInWithoutStagedSetup() {
+        let app = self.launch(fixture: "failed", extra: [
+            "--openclaw-manual-host-fixture", "gateway.example.ts.net",
+        ])
         let settingsSignIn = app.buttons["TailnetSettings.SignIn"]
         self.scrollTo(settingsSignIn, in: app)
         self.capture("tailnet-04-settings-error-sign-in")

@@ -142,7 +142,9 @@ extension SettingsProTab {
             EmbeddedTailnetSetupStepSection(
                 choice: self.$tailnetChoice,
                 isConnecting: self.connectingGateway != nil)
-            SettingsEmbeddedTailnetSection(gatewayHost: self.currentGatewayHost)
+            if EmbeddedTailnetSettingsPresentation.showsStandaloneSection(stagedChoice: self.tailnetChoice) {
+                SettingsEmbeddedTailnetSection(gatewayHost: self.currentGatewayHost)
+            }
             self.pairedGatewaysCard
 
             Section {
