@@ -380,8 +380,12 @@ inside the app. This works alongside any system VPN because it does not use one.
 
 ### Lifecycle
 
-1. Settings or onboarding parses a setup code. If it has a `tailnet` object, setup calls
-   `prepareForSetupLink`. This starts the node and waits before any gateway probe or pairing.
+1. Settings or onboarding parses a setup code. If it has a `tailnet` object (or one is inferred,
+   see below), the setup screen shows **Connect through Tailscale** switched on and a
+   **Sign in to Tailscale** step with its state (not signed in / starting / reconnecting /
+   sign-in required / connected with tailnet IP). The user can flip the toggle before
+   connecting. When it is on, setup calls `prepareForSetupLink`. This starts the node and
+   waits before any gateway probe or pairing.
 2. If the node needs login, the controller presents the real IPN-bus `BrowseToURL` in
    `ASWebAuthenticationSession`. The user signs in. The app never enters credentials.
 3. The controller publishes `.running` only after the backend reports `Running` and the
@@ -389,9 +393,15 @@ inside the app. This works alongside any system VPN because it does not use one.
 4. On scene foreground and on a periodic check, the controller probes the loopback listener.
    iOS can reclaim it during suspension. If the probe fails, the controller restarts the
    node. Route changes force gateway sessions to reconnect.
-5. Settings → Gateway → **Tailnet** shows state, tailnet IP, user, and device name. It also has
-   Sign in, Reconnect, Log Out (reset auth, new login URL), and Reset (delete node state and
-   stop routing).
+5. Settings → Gateway → **Tailscale** is always visible. Unconfigured, it shows *Off* and
+   **Enable Tailscale for this gateway** for the current gateway host (pairing and credentials
+   are untouched). Configured, it shows state (including *Reconnecting* after foreground),
+   tailnet IP, user, and device name, plus Sign in, Reconnect, Log Out (reset auth, new login
+   URL), and Reset (delete node state and stop routing). Turning the toggle off for the last
+   routed gateway stops routing but keeps node state, so turning it back on needs no new login.
+6. Gateway timeouts and refusals explain the route: a held route says in-app Tailscale is not
+   connected (sign in or Reconnect); a direct route to a tailnet-only address says to turn on
+   Tailscale; a connected tailnet with a silent Gateway points at the Gateway or tailnet ACLs.
 
 ### Apple Watch and Share Extension
 
@@ -423,6 +433,14 @@ The setup code is base64url JSON. All legacy fields are unchanged. `tailnet` is 
 - `hostname`: one DNS label (`[a-z0-9-]`, 1–63 characters), lowercased. Default: `openclaw-iphone`.
 - `required`: default `true`.
 - A malformed `tailnet` value rejects the whole setup code. It never connects without the tailnet.
+- **Inference for legacy codes.** A setup code without `tailnet` whose primary host is
+  `*.ts.net`, in `100.64.0.0/10`, or in `fd7a:115c:a1e0::/48` is treated as `"tailnet": {}`
+  (Tailscale control plane, `openclaw-iphone`, `required: true`). Those names and addresses
+  exist only inside a tailnet; relying on the system route or a system VPN made these gateways
+  fail silently whenever the Tailscale app was off. An explicit `tailnet` object always wins,
+  including `required: false`. Other legacy hosts, raw `wss://` URLs, `openclaw://` deep links,
+  and already-saved gateways are unchanged: upgrades never migrate, re-route, or re-pair
+  existing installs. Apple Watch direct setup parses with `inferTailnet: false`.
 - Every endpoint in an embedded-tailnet setup is routed through the in-app node. Required setups never fall back to a LAN endpoint or the system VPN.
 - Fixtures: `apps/shared/OpenClawKit/Tests/OpenClawKitTests/Fixtures/SetupCodes/embedded-tailnet.json`.
 

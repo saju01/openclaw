@@ -48,6 +48,7 @@ struct SettingsProTab: View {
     @State var setupAttemptID: UUID?
     @State var manualConnectGeneration: UInt64 = 0
     @State var stagedGatewaySetupLink: GatewayConnectDeepLink?
+    @State var tailnetChoice: EmbeddedTailnetSetupChoice?
     @State var pendingManualAuthOverride: GatewayConnectionController.ManualAuthOverride?
     @State var scannerResultHandoff = QRScannerResultHandoff()
     @State var scannerScanID: UInt64 = 0
@@ -140,6 +141,7 @@ struct SettingsProTab: View {
             }
             .task {
                 self.syncSettingsState()
+                self.syncTailnetChoice(forInput: self.setupCode)
                 self.refreshNotificationSettings()
                 self.applyGatewaySetupRequestIfNeeded()
                 self.notifyRouteChange()
@@ -167,6 +169,7 @@ struct SettingsProTab: View {
                 }
             }
             .onChange(of: self.setupCode) { _, newValue in
+                self.syncTailnetChoice(forInput: newValue)
                 if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     self.clearStagedGatewaySetupLink()
                 }

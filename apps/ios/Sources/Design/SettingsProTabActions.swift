@@ -305,6 +305,7 @@ extension SettingsProTab {
         self.setupCode = ""
         self.setupStatusText = nil
         self.stagedGatewaySetupLink = link
+        self.tailnetChoice = EmbeddedTailnetSetupChoice(link: link)
         let security = link.tls ? String(localized: "TLS") : String(localized: "plain")
         self.setupStatusText = String(
             format: String(
@@ -332,13 +333,14 @@ extension SettingsProTab {
             return false
         }
 
-        guard let parsedLink = raw.isEmpty ? stagedLink : GatewayConnectDeepLink.fromSetupInput(raw) else {
+        guard let rawLink = raw.isEmpty ? stagedLink : GatewayConnectDeepLink.fromSetupInput(raw) else {
             self.setupStatusText = String(
                 localized: "Setup code not recognized or uses an insecure ws:// gateway URL.")
             return false
         }
+        let parsedLink = EmbeddedTailnetSetupChoice.resolve(rawLink, choice: self.tailnetChoice)
         if parsedLink.embeddedTailnet != nil {
-            self.setupStatusText = String(localized: "Starting tailnet…")
+            self.setupStatusText = String(localized: "Starting Tailscale…")
         }
         if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
             guard self.setupAttemptID == attemptID else { return false }
@@ -350,6 +352,7 @@ extension SettingsProTab {
         guard self.setupAttemptID == attemptID else { return false }
         self.stagedGatewaySetupLink = nil
         self.setupCode = ""
+        self.tailnetChoice = nil
         await self.applyGatewayLink(link)
         return true
     }
@@ -429,6 +432,18 @@ extension SettingsProTab {
         self.setupStatusText = String(localized: "Apple Review demo mode enabled.")
         self.appModel.enterAppleReviewDemoMode()
         self.pendingTargetSuppression.releaseAutoConnect(.qrScanner, controller: self.gatewayController)
+    }
+
+    /// Keep the "Connect through Tailscale" choice in step with the pasted code, or with a staged
+    /// setup link when the field was cleared to stage it.
+    func syncTailnetChoice(forInput raw: String) {
+        if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let staged = self.stagedGatewaySetupLink {
+            if self.tailnetChoice?.link != staged {
+                self.tailnetChoice = EmbeddedTailnetSetupChoice(link: staged)
+            }
+            return
+        }
+        self.tailnetChoice = EmbeddedTailnetSetupChoice.updated(self.tailnetChoice, forInput: raw)
     }
 
     func clearStagedGatewaySetupLink() {
@@ -894,6 +909,14 @@ extension SettingsProTab {
         if self.appModel.isAppleReviewDemoModeEnabled {
             return String(localized: "Apple Review demo mode")
         }
+        if !self.gatewayConnected,
+           self.embeddedTailnet.carries(host: self.currentGatewayHost),
+           self.embeddedTailnet.phase != .running
+        {
+            // The gateway waits for the in-app tailnet; say so instead of a bare "offline".
+            let state = EmbeddedTailnetStepState(controller: self.embeddedTailnet)
+            return String(format: String(localized: "Tailscale: %@"), state.title)
+        }
         return self.gatewayConnected
             ? String(localized: "Connected")
             : self.appModel.gatewayDisplayStatusText
@@ -949,6 +972,16 @@ extension SettingsProTab {
 
     var gatewayAddress: String {
         self.appModel.gatewayRemoteAddress ?? String(localized: "Waiting for gateway")
+    }
+
+    /// Host of the gateway this phone uses now (active config, else the saved manual host),
+    /// for Settings › Tailscale "Enable Tailscale for this gateway".
+    var currentGatewayHost: String? {
+        if let host = self.appModel.activeGatewayConnectConfig?.url.host, !host.isEmpty {
+            return host
+        }
+        let manual = self.manualGatewayHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return manual.isEmpty ? nil : manual
     }
 
     var gatewayServer: String {

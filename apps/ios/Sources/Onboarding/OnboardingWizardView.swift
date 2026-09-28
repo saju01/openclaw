@@ -1,3 +1,5 @@
+// OnboardingWizardView owns the whole onboarding state machine; keep it in one file.
+// swiftlint:disable file_length
 import Combine
 import CoreImage
 import OpenClawKit
@@ -53,6 +55,7 @@ struct OnboardingWizardView: View {
     @State private var qrCodeCompletion = OnboardingQRCodeCompletion()
     @State private var setupCode: String = ""
     @State private var setupCodeStatus: String?
+    @State private var tailnetChoice: EmbeddedTailnetSetupChoice?
     @State private var setupAttemptID: UUID?
     @State private var manualConnectGeneration: UInt64 = 0
     @FocusState private var focusedField: OnboardingFocusedField?
@@ -258,6 +261,7 @@ struct OnboardingWizardView: View {
             }
         }
         .onChange(of: self.setupCode) { _, newValue in
+            self.tailnetChoice = EmbeddedTailnetSetupChoice.updated(self.tailnetChoice, forInput: newValue)
             guard !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             self.qrCodeCompletion.cancel()
             self.clearStagedGatewaySetupLink()
@@ -431,6 +435,9 @@ struct OnboardingWizardView: View {
     @ViewBuilder
     private var modeStep: some View {
         self.setupCodeSection
+        EmbeddedTailnetSetupStepSection(
+            choice: self.$tailnetChoice,
+            isConnecting: self.connectingGateway != nil)
         OnboardingModeSelectionSections(
             selectedMode: self.selectedMode,
             developerModeEnabled: Binding(
@@ -872,13 +879,17 @@ extension OnboardingWizardView {
             return
         }
 
-        guard let parsedLink = GatewayConnectDeepLink.fromSetupInput(raw) else {
+        guard let rawLink = GatewayConnectDeepLink.fromSetupInput(raw) else {
             self.setupCodeStatus = "Setup code not recognized or uses an insecure ws:// gateway URL."
             return
         }
+        let parsedLink = EmbeddedTailnetSetupChoice.resolve(rawLink, choice: self.tailnetChoice)
 
         guard let attemptID = self.beginSetupAttempt() else { return }
         defer { self.finishSetupAttempt(attemptID) }
+        if parsedLink.embeddedTailnet != nil {
+            self.setupCodeStatus = String(localized: "Starting Tailscale…")
+        }
         if let failure = await self.embeddedTailnet.prepareForSetupLink(parsedLink) {
             guard self.setupAttemptID == attemptID else { return }
             self.setupCodeStatus = failure
@@ -890,6 +901,7 @@ extension OnboardingWizardView {
 
         await self.applyGatewayLink(link)
         self.setupCode = ""
+        self.tailnetChoice = nil
         self.setupCodeStatus = "Setup code applied. Connecting…"
         self.connectMessage = "Connecting via setup code…"
         self.statusLine = "Setup code loaded. Connecting to \(link.host):\(link.port)…"

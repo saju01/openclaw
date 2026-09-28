@@ -716,6 +716,9 @@ struct OpenClawApp: App {
             Task { await appModel.restartGatewaySessionsAfterForegroundStaleConnection() }
         }
         _embeddedTailnet = State(initialValue: embeddedTailnet)
+        #if DEBUG
+        Self.applyTailnetScreenshotFixtures(embeddedTailnet)
+        #endif
         OpenClawAppModelRegistry.appModel = appModel
         _appearanceModel = State(initialValue: AppAppearanceModel())
         _appModel = State(initialValue: appModel)
@@ -772,6 +775,31 @@ struct OpenClawApp: App {
     }
 
     #if DEBUG
+    /// Screenshot-only fixtures (synthetic data, no Tailscale login, no network):
+    /// `--openclaw-tailnet-fixture off|starting|reconnecting|needs-login|running|failed`,
+    /// `--openclaw-setup-code-fixture <code>` pre-fills Settings › Gateway,
+    /// `--openclaw-manual-host-fixture <host>` sets the current gateway host.
+    private static func applyTailnetScreenshotFixtures(_ tailnet: EmbeddedTailnetController) {
+        guard self.screenshotModeEnabled,
+              let fixture = self.argumentValue(after: "--openclaw-tailnet-fixture")
+        else { return }
+        // Every fixture run starts from the same Settings text, never a previous run's values.
+        let host = self.argumentValue(after: "--openclaw-manual-host-fixture")
+        UserDefaults.standard.set(host ?? "", forKey: "gateway.manual.host")
+        UserDefaults.standard.set(
+            self.argumentValue(after: "--openclaw-setup-code-fixture") ?? "",
+            forKey: "gateway.setupCode")
+        tailnet._debug_applyFixture(fixture, gatewayHosts: host.map { [$0.lowercased()] } ?? [])
+    }
+
+    private static func argumentValue(after flag: String) -> String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return arguments[index + 1]
+    }
+
     private func applyTailnetSimulatorSetupIfRequested() async {
         let arguments = ProcessInfo.processInfo.arguments
         guard let flag = arguments.firstIndex(of: "--openclaw-tailnet-setup-code"),

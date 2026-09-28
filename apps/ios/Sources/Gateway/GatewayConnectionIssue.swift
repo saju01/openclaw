@@ -118,46 +118,57 @@ extension GatewayConnectionIssue {
 
     /// These addresses suggest Tailscale, not proof of VPN state or permission to use plaintext.
     static func isTailnetEndpoint(_ host: String) -> Bool {
-        var host = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if host.hasSuffix(".") { host.removeLast() }
-        if host.hasSuffix(".ts.net") {
-            return host.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
-                !label.isEmpty && label.count <= 63 && label.first != "-" && label.last != "-"
-                    && label.utf8.allSatisfy { byte in
-                        (97...122).contains(byte) || (48...57).contains(byte) || byte == 45
-                    }
-            }
+        GatewayEmbeddedTailnetSetup.isTailnetHost(host)
+    }
+
+    private static let transportKinds: [GatewayConnectionProblem.Kind] = [
+        .timeout, .connectionRefused, .reachabilityFailed,
+    ]
+
+    /// Plain-language fix for a gateway transport failure, chosen from how this host is routed.
+    /// Nil when the failure is not a reachability problem this layer can explain.
+    static func endpointGuidance(
+        kind: GatewayConnectionProblem.Kind,
+        host: String?,
+        route: GatewayNetworkRoute) -> String?
+    {
+        guard let host else { return nil }
+        switch route {
+        case .unavailable:
+            // The in-app node owns this host but is not running: traffic fails closed on purpose.
+            guard self.transportKinds.contains(kind) || kind == .websocketCancelled || kind == .unknown
+            else { return nil }
+            return String(localized: """
+            In-app Tailscale is not connected, so OpenClaw is holding Gateway traffic instead of \
+            sending it over the regular network. Open Settings › Gateway › Tailscale and sign in, \
+            or tap Reconnect, then retry.
+            """)
+        case .proxy:
+            guard self.transportKinds.contains(kind) else { return nil }
+            return String(localized: """
+            Tailscale is connected, but the Gateway did not answer. Check that the Gateway is \
+            running and that your tailnet allows this device to reach it, then retry.
+            """)
+        case .direct:
+            guard self.isTailnetEndpoint(host), self.transportKinds.contains(kind) else { return nil }
+            return String(localized: """
+            This Gateway address only works inside a tailnet. Turn on Tailscale for this \
+            gateway in Settings › Gateway › Tailscale, or open the Tailscale app on this device \
+            and connect to the same tailnet, then retry.
+            """)
         }
-        if host.hasPrefix("["), host.hasSuffix("]") {
-            host = String(host.dropFirst().dropLast())
-        }
-        if let address = IPv4Address(host) {
-            let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-            guard octets.count == 4,
-                  octets.allSatisfy({ octet in UInt8(octet).map { String($0) == octet } ?? false })
-            else { return false }
-            let bytes = address.rawValue
-            return bytes[0] == 100 && (64...127).contains(bytes[1])
-        }
-        if let address = IPv6Address(host) {
-            return address.rawValue.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
-        }
-        return false
     }
 
     static func addingEndpointGuidance(
         to problem: GatewayConnectionProblem,
-        host: String?) -> GatewayConnectionProblem
+        host: String?,
+        route: GatewayNetworkRoute? = nil) -> GatewayConnectionProblem
     {
-        guard let host, self.isTailnetEndpoint(host),
-              [.timeout, .connectionRefused, .reachabilityFailed].contains(problem.kind),
-              problem.docsURL != self.tailscaleSetupURL
+        let route = route ?? GatewayNetworkRouter.shared.route(forHost: host)
+        guard let guidance = self.endpointGuidance(kind: problem.kind, host: host, route: route),
+              problem.docsURL != self.tailscaleSetupURL,
+              !problem.localizedMessage.contains(guidance)
         else { return problem }
-        let guidance = String(localized: """
-        If this gateway uses Tailscale, install or open Tailscale on this device, \
-        sign in to the same tailnet, and connect. Check that the gateway is online \
-        and accessible to your device, then retry.
-        """)
         let message = problem.localizedMessage + "\n\n" + guidance
         return GatewayConnectionProblem(
             kind: problem.kind,

@@ -35,13 +35,31 @@ enum EmbeddedTailnetReadiness: Equatable, Sendable {
         case .running:
             String(localized: "Tailnet connected.")
         case .needsLogin:
-            String(localized: "Sign in to Tailscale below, then tap Connect again.")
+            String(
+                localized: """
+                Sign in to Tailscale to continue. Tap Sign in to Tailscale, finish in the browser, then \
+                tap Connect again.
+                """)
         case .needsApproval:
-            String(localized: "Waiting for your tailnet admin to approve this device.")
+            String(
+                localized: """
+                Waiting for your tailnet admin to approve this device. Tap Connect again after it is \
+                approved.
+                """)
         case let .failed(message):
-            String(format: String(localized: "Tailnet failed: %@"), message)
+            String(
+                format: String(
+                    localized: """
+                    Tailscale couldn't connect: %@. Check your internet connection, then tap Sign in to \
+                    Tailscale to retry.
+                    """),
+                message)
         case .timedOut:
-            String(localized: "Tailnet is still starting. Try Connect again in a moment.")
+            String(
+                localized: """
+                Tailscale is taking too long to start. Wait a moment and tap Connect again, or open \
+                Settings › Gateway › Tailscale and tap Reconnect.
+                """)
         }
     }
 }
@@ -78,9 +96,21 @@ final class EmbeddedTailnetController {
     private(set) var config: EmbeddedTailnetStoredConfig?
     private(set) var status: EmbeddedTailnetStatus?
     private(set) var lastError: String?
+    /// True once the node reached `.running` in this process. A later `.starting` is then a
+    /// reconnect (foreground recheck, stale listener) rather than a first start, so the UI can
+    /// say "Reconnecting" instead of looking like setup started over.
+    private(set) var hasBeenRunning = false
 
     var isConfigured: Bool {
         self.config != nil
+    }
+
+    /// Whether this node already carries `host`.
+    func carries(host: String?) -> Bool {
+        guard let host = host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !host.isEmpty
+        else { return false }
+        return self.config?.gatewayHosts.contains(host) == true
     }
 
     var authURL: URL? {
@@ -98,6 +128,9 @@ final class EmbeddedTailnetController {
     @ObservationIgnored private let router: GatewayNetworkRouter
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let stateRoot: URL
+    /// False for previews, tests, and screenshot fixtures: nothing may start a real node or
+    /// contact a control server, including foreground and monitor health checks.
+    @ObservationIgnored private let allowsNodeStart: Bool
     @ObservationIgnored private var runtime: Runtime?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var startTask: Task<Void, Never>?
@@ -126,6 +159,7 @@ final class EmbeddedTailnetController {
         self.router = router
         self.defaults = defaults
         self.stateRoot = stateRoot
+        self.allowsNodeStart = startNode
         self.config = Self.loadConfig(defaults: defaults)
         // Publish before any gateway autoconnect so a required route fails closed immediately.
         self.publishRoute()
@@ -210,6 +244,22 @@ final class EmbeddedTailnetController {
             return nil
         }
         let hosts = GatewayEmbeddedTailnetSetup.routedHosts(for: link.connectionEndpoints)
+        return await self.prepareAndSignIn(setup: setup, gatewayHosts: hosts)
+    }
+
+    /// Settings "Enable Tailscale for this gateway": adopt the default embedded tailnet for an
+    /// existing gateway host without touching its pairing, then sign in. Nil means running.
+    func enable(forGatewayHost host: String) async -> String? {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return String(localized: "Connect to a gateway or paste its setup code first.")
+        }
+        return await self.prepareAndSignIn(
+            setup: self.config?.setup ?? GatewayEmbeddedTailnetSetup.defaults,
+            gatewayHosts: [trimmed])
+    }
+
+    private func prepareAndSignIn(setup: GatewayEmbeddedTailnetSetup, gatewayHosts hosts: [String]) async -> String? {
         var readiness = await self.prepare(setup: setup, gatewayHosts: hosts)
         if readiness == .needsLogin, let url = self.authURL {
             // The user completes login in the browser; nothing here submits credentials.
@@ -225,7 +275,10 @@ final class EmbeddedTailnetController {
         let retained = config.gatewayHosts.filter { !released.contains($0.lowercased()) }
         guard retained != config.gatewayHosts else { return }
         if retained.isEmpty {
-            await self.remove()
+            // The user chose the regular network for the last routed gateway. Stop routing but
+            // keep the node state on disk so turning Tailscale back on does not force a new
+            // login. Only "Reset Tailnet Node" deletes it.
+            await self.deactivate()
             return
         }
         let updated = EmbeddedTailnetStoredConfig(setup: config.setup, gatewayHosts: retained)
@@ -296,6 +349,20 @@ final class EmbeddedTailnetController {
         }
     }
 
+    /// Stop the node and stop routing gateways through it, keeping its on-disk node state.
+    private func deactivate() async {
+        self.generation &+= 1
+        let pendingStart = self.startTask
+        self.stopRuntime()
+        await pendingStart?.value
+        await self.closingTask?.value
+        self.config = nil
+        self.defaults.removeObject(forKey: Self.defaultsKey)
+        self.status = nil
+        self.lastError = nil
+        self.setPhase(.notConfigured)
+    }
+
     /// Stop the node, delete its persisted identity, and stop routing gateways through it.
     func remove() async {
         self.generation &+= 1
@@ -324,7 +391,9 @@ final class EmbeddedTailnetController {
         guard foreground, !wasForeground else { return }
         // A listener that survived in memory can already be stale after suspension. Stop
         // advertising a healthy route synchronously; healthCheck republishes it only after a probe.
-        if self.config != nil {
+        // Only a running node advertises a route, so other states (sign-in, approval, failure)
+        // keep their actionable UI instead of flashing "Reconnecting".
+        if self.config != nil, self.phase == .running {
             self.setPhase(.starting)
         }
         Task { await self.healthCheck(reason: "foreground") }
@@ -360,6 +429,10 @@ final class EmbeddedTailnetController {
 
     private func startNode(reason: String) {
         guard let config else { return }
+        guard self.allowsNodeStart else {
+            Self.logger.info("embedded tailnet start skipped (node start disabled) reason=\(reason, privacy: .public)")
+            return
+        }
         self.generation &+= 1
         let generation = self.generation
         let previousStart = self.startTask
@@ -549,6 +622,11 @@ final class EmbeddedTailnetController {
         if self.phase != phase {
             self.phase = phase
         }
+        if phase == .running {
+            self.hasBeenRunning = true
+        } else if phase == .notConfigured {
+            self.hasBeenRunning = false
+        }
         self.publishRoute()
     }
 
@@ -612,6 +690,44 @@ final class EmbeddedTailnetController {
         }
         return error.localizedDescription
     }
+
+    #if DEBUG
+    /// Simulator screenshots and UI tests: show a node state without starting TailscaleKit or
+    /// contacting any control server. Nothing is persisted and no route is published.
+    func _debug_applyFixture(_ fixture: String, gatewayHosts: [String]) {
+        let status = EmbeddedTailnetStatus(
+            backendState: "Running",
+            authURL: nil,
+            ipv4: "100.101.102.103",
+            ipv6: nil,
+            loginName: "fixture@example.com",
+            dnsName: "openclaw-iphone.example.ts.net",
+            tailnetName: "example.com",
+            tags: [])
+        switch fixture {
+        case "off":
+            self.config = nil
+            self.phase = .notConfigured
+            return
+        case "starting":
+            self.phase = .starting
+        case "reconnecting":
+            self.hasBeenRunning = true
+            self.phase = .starting
+        case "needs-login":
+            self.phase = .needsLogin(nil)
+        case "running":
+            self.hasBeenRunning = true
+            self.status = status
+            self.phase = .running
+        default:
+            self.phase = .failed(String(localized: "Couldn't reach the Tailscale control server."))
+        }
+        self.config = EmbeddedTailnetStoredConfig(
+            setup: GatewayEmbeddedTailnetSetup.defaults,
+            gatewayHosts: gatewayHosts)
+    }
+    #endif
 }
 
 /// Decoded subset of tsnet's `ipnstate.Status` used by Settings.

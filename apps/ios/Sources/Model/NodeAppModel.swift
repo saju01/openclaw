@@ -3242,7 +3242,7 @@ extension NodeAppModel {
             timeoutSeconds: 20,
             ifCurrentRoute: route)
         let setup = try JSONDecoder().decode(SetupCodeResponse.self, from: response)
-        guard let setupLink = GatewayConnectDeepLink.fromSetupCode(setup.setupCode) else {
+        guard let setupLink = GatewayConnectDeepLink.fromSetupCode(setup.setupCode, inferTailnet: false) else {
             throw NSError(domain: "WatchDirectSetup", code: 4, userInfo: [
                 NSLocalizedDescriptionKey: "Direct Apple Watch mode requires a trusted HTTPS Gateway endpoint.",
             ])
